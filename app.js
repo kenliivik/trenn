@@ -577,10 +577,21 @@
     $('syncState').textContent = state;
 
     var note = flash ? '<p>'+flash+'</p>' : '';
-    if(!key) note += '<p>History is kept on this device only. Open your pairing link once to save it on your server.</p>';
-    else if(meta.syncError === 'key') note += '<p>The server did not accept this device\'s key. Open the pairing link again.</p>';
+    // Pasting works where the link can't: an installed iPhone app never receives links (they open in Safari).
+    var pairForm = '<input class="pair-input" id="pairInput" placeholder="Paste pairing link or key" autocomplete="off" autocapitalize="off" spellcheck="false">'+
+      '<button class="hist-btn" id="pairBtn">Pair this device</button>';
+    if(!key) note += '<p>History is kept on this device only. Paste your pairing link or key to save it on your server.</p>' + pairForm;
+    else if(meta.syncError === 'key') note += '<p>The server did not accept this device\'s key. Paste the pairing link or key again.</p>' + pairForm;
     else if(meta.oura === false) note += '<p>Connect Oura to add heart rate to your sessions.</p><button class="hist-btn" id="ouraConnect">Connect Oura</button>';
     $('ouraBox').innerHTML = note;
+    var pb = $('pairBtn');
+    if(pb) pb.addEventListener('click', function(){
+      var m = $('pairInput').value.trim().match(/([A-Za-z0-9_-]{20,})$/); // the whole link or just the key
+      if(!m){ flash = 'That does not look like a pairing key.'; renderHistory(); return; }
+      try{ localStorage.setItem(PAIR_KEY, m[1]); }catch(e){}
+      flash = ''; meta.syncError = ''; meta.syncedAt = 0;
+      renderHistory(); sync();
+    });
     var c = $('ouraConnect');
     if(c) c.addEventListener('click', function(){
       fetch('api/oura-connect.php', { method:'POST', headers:{ 'X-Trenn-Key':pairKey() } })
