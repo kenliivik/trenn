@@ -6,9 +6,9 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="theme-color" content="#EAE8E3">
-<title>Patio Circuit</title>
+<title>Trenn</title>
 <meta name="robots" content="noindex, nofollow">
-<meta name="apple-mobile-web-app-title" content="Patio Circuit">
+<meta name="apple-mobile-web-app-title" content="Trenn">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icon-180.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -56,7 +56,7 @@
 
   /* ---------- LIBRARY ---------- */
   .hero{ display:grid; grid-template-columns:1fr auto; border-bottom:2px solid var(--ink); }
-  .hero h1{ padding:14px 16px 12px; font-size:clamp(44px, 15vw, 64px); }
+  .hero h1{ padding:14px 16px 12px; font-size:clamp(44px, 15vw, 64px); min-width:0; } /* never push the streak box off screen */
   .streak{
     border-left:1px solid var(--ink); padding:10px 12px; min-width:104px;
     display:flex; flex-direction:column; justify-content:space-between;
@@ -270,7 +270,7 @@
   <section class="screen active" id="screen-home">
     <div class="status micro"><span>Bodyweight + KB · Patio</span><span id="todayDate"></span></div>
     <div class="hero">
-      <h1 class="mega">Patio<br>Circuit</h1>
+      <h1 class="mega" id="motto">Show<br>up</h1>
       <div class="streak" id="streakChip">
         <span class="micro">Streak</span>
         <data id="streakNum" value="0">00</data>

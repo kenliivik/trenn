@@ -1,6 +1,6 @@
-﻿{
-  "name": "Patio Circuit",
-  "short_name": "Patio Circuit",
+{
+  "name": "Trenn",
+  "short_name": "Trenn",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

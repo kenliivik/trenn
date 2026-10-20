@@ -1,4 +1,4 @@
-// Patio Circuit app: screens, timers, workout log, sync. A file (not inline) because the server's security policy blocks inline scripts.
+// Trenn app: screens, timers, workout log, sync. A file (not inline) because the server's security policy blocks inline scripts.
 (function(){
 
   var EXERCISES = [
@@ -555,6 +555,7 @@
   document.getElementById('doneBtn').addEventListener('click', function(){
     showScreen('screen-home');
     renderTop();
+    pickMotto(); // trained today now: switch to a "done" line
   });
 
   // ---------- HISTORY ----------
@@ -610,9 +611,34 @@
   $('historyBtn').addEventListener('click', function(){ showScreen('screen-history'); renderHistory(); sync(); });
   $('histHomeBtn').addEventListener('click', function(){ flash = ''; showScreen('screen-home'); renderTop(); });
 
+  // ---------- HOME HEADLINE ----------
+  // A different push each time the app is opened. Words stay at 7 letters or less to fit the big type on a phone.
+  var MOTTOS = ['Show<br>up.', 'Just<br>start.', 'Keep<br>going.', 'Earn<br>it.', 'Move<br>today.', 'No zero<br>days.',
+    'Do the<br>work.', 'Small<br>wins.', 'Own the<br>day.', 'Go<br>again.', 'You vs<br>you.', 'Start<br>strong.',
+    'Win the<br>day.', 'Stay<br>hungry.', 'One<br>more.', 'Make it<br>count.', 'Get<br>moving.'];
+  var DONE_MOTTOS = ['Done<br>today.', 'Job<br>done.', 'Well<br>earned.', 'Rest<br>well.', 'That<br>counts.'];
+  function pickMotto(){
+    var days = trainedDays(), streak = computeStreak(Array.from(days));
+    var list = days.has(today()) ? DONE_MOTTOS : MOTTOS.concat(streak >= 2 ? ['Day '+(streak+1)+'<br>awaits.'] : []);
+    var last = loadJSON('trenn_motto', '');
+    var pick = list[Math.floor(Math.random()*list.length)];
+    if(pick === last && list.length > 1) pick = list[(list.indexOf(pick)+1) % list.length]; // never the same twice in a row
+    saveJSON('trenn_motto', pick);
+    var h = $('motto');
+    h.innerHTML = pick;
+    h.style.fontSize = '';
+    // Safety net for narrow screens: shrink until the longest word fits.
+    for(var size = parseFloat(getComputedStyle(h).fontSize); h.scrollWidth > h.clientWidth && size > 28; size -= 4) h.style.fontSize = size+'px';
+  }
+  // An installed app is often resumed rather than reopened, so a new line also comes when it returns to the front.
+  document.addEventListener('visibilitychange', function(){
+    if(document.visibilityState === 'visible' && document.querySelector('.screen.active').id === 'screen-home') pickMotto();
+  });
+
   applyTargets();
   updateStartBtn();
   renderTop();
+  pickMotto();
   if(flash){ showScreen('screen-history'); renderHistory(); }
   sync();
 })();
