@@ -1,0 +1,9 @@
+# Only the endpoints are for browsers. The helper file and the data folder (database, config) stay private,
+# so a new endpoint has to be added to the second list.
+<FilesMatch "\.php$">
+  Require all denied
+</FilesMatch>
+<FilesMatch "^(sync|oura-connect|oura-callback|health)\.php$">
+  Require all granted
+</FilesMatch>
+RedirectMatch 404 ^/api/data(/|$)

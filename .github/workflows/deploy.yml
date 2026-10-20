@@ -1,0 +1,72 @@
+# Tests the app and API, then uploads them to the Veebimajutus server (trenn.dsgnr.ee) on every push to main.
+# Needs the "production" environment secrets SSH_HOST, SSH_USER and SSH_PRIVATE_KEY,
+# and for the API: TRENN_KEY, OURA_CLIENT_ID and OURA_CLIENT_SECRET.
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency: deploy
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: pdo_sqlite, curl
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: for f in api/*.php tests/*.php; do php -l "$f"; done
+      - run: php tests/api_test.php
+      - run: node tests/app_test.mjs
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    # The server key is kept in the "production" environment, which only main may use.
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Upload over SFTP
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          TRENN_KEY: ${{ secrets.TRENN_KEY }}
+          OURA_CLIENT_ID: ${{ secrets.OURA_CLIENT_ID }}
+          OURA_CLIENT_SECRET: ${{ secrets.OURA_CLIENT_SECRET }}
+          SSH_PORT: 1022
+          DEPLOY_DIR: htdocs/trenn
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq lftp
+          install -m 600 /dev/null ~/deploy_key
+          printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > ~/deploy_key
+          grep -q -- '-----BEGIN' ~/deploy_key || { echo "::error::SSH_PRIVATE_KEY is empty or missing its BEGIN line"; exit 1; }
+          # Only the server whose key is in .github/known_hosts (copied from korilus, same server) is trusted.
+          HOSTKEY="-o HostKeyAlias=deploy -o UserKnownHostsFile=$PWD/.github/known_hosts -o StrictHostKeyChecking=yes"
+          SSH="ssh -i $HOME/deploy_key -p $SSH_PORT -o BatchMode=yes -o ConnectTimeout=20 $HOSTKEY $SSH_USER@$SSH_HOST"
+          $SSH true || { echo "::error::SSH login to $SSH_HOST:$SSH_PORT failed (see the ssh error above)"; exit 1; }
+          # Mirror the app to the server, removing stale files but keeping what the host manages (.well-known for
+          # Let's Encrypt, elkdata_*) and api/data/ (database and config). Repo-only folders are not uploaded.
+          lftp -e "set sftp:connect-program 'ssh -a -x -i $HOME/deploy_key $HOSTKEY'; \
+            mirror --reverse --delete --verbose \
+              --exclude-glob .git/ --exclude-glob .github/ --exclude-glob tests/ \
+              --exclude-glob .well-known/ --exclude-glob 'elkdata_*' --exclude-glob 'elkdata_*/' \
+              --exclude-glob api/data/ --exclude-glob data/ \
+              ./ $DEPLOY_DIR/; bye" \
+            -p "$SSH_PORT" -u "$SSH_USER," "sftp://$SSH_HOST"
+          # The API config is written from the secrets once all three exist, through stdin so they never appear in a command line.
+          if [ -n "$TRENN_KEY" ] && [ -n "$OURA_CLIENT_ID" ] && [ -n "$OURA_CLIENT_SECRET" ]; then
+            jq -n --arg key "$TRENN_KEY" --arg id "$OURA_CLIENT_ID" --arg secret "$OURA_CLIENT_SECRET" \
+              '{key: $key, oura_client_id: $id, oura_client_secret: $secret, app_url: "https://trenn.dsgnr.ee"}' \
+              | $SSH "umask 077 && mkdir -p $DEPLOY_DIR/api/data && cat > $DEPLOY_DIR/api/data/config.json"
+          else
+            echo "::warning::TRENN_KEY, OURA_CLIENT_ID or OURA_CLIENT_SECRET missing: the API stays unconfigured"
+          fi

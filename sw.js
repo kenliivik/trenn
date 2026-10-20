@@ -1,5 +1,5 @@
-const CACHE = 'trenn-v1';
-const SHELL = ['./', 'index.html', 'manifest.webmanifest', 'icon-180.png', 'icon-192.png', 'icon-512.png'];
+const CACHE = 'trenn-v2';
+const SHELL = ['./', 'index.html', 'suggest.js', 'manifest.webmanifest', 'icon-180.png', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
@@ -13,11 +13,14 @@ self.addEventListener('activate', e => {
 
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return;
-  // Page: network first so updates show up, cache when offline.
-  if (e.request.mode === 'navigate') {
+  const url = new URL(e.request.url);
+  if (url.pathname.includes('/api/')) return; // server data is never cached
+  // Page and the app's own script: network first so updates show up, cache when offline.
+  if (e.request.mode === 'navigate' || (url.origin === location.origin && url.pathname.endsWith('.js'))) {
+    const key = e.request.mode === 'navigate' ? './' : e.request;
     e.respondWith(fetch(e.request)
-      .then(r => { const copy = r.clone(); caches.open(CACHE).then(c => c.put('./', copy)); return r; })
-      .catch(() => caches.match('./')));
+      .then(r => { const copy = r.clone(); caches.open(CACHE).then(c => c.put(key, copy)); return r; })
+      .catch(() => caches.match(key)));
     return;
   }
   // Everything else (icons, Google Fonts): cache first, fill on first use.

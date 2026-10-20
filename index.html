@@ -203,6 +203,40 @@
   /* a single timed exercise (jump rope, elliptical) needs no circuit progress */
   .solo .prog, .solo .count{ display:none; }
 
+  /* ---------- HISTORY LINK, SUGGESTIONS, RATING ---------- */
+  button.h-title{ width:100%; background:none; border:0; border-bottom:1px solid var(--ink); font:inherit; color:inherit; cursor:pointer; text-align:left; }
+  .card-scroll .suggest{ order:-2; } /* above the timer on a phone */
+  .suggest{ border-bottom:2px solid var(--ink); border-left:6px solid var(--red); padding:12px 16px; }
+  .suggest p{ margin:6px 0 8px; font-size:14px; line-height:1.4; }
+  .suggest ul{ list-style:none; margin:0 0 10px; padding:0; }
+  .suggest li{ display:flex; justify-content:space-between; gap:10px; padding:5px 0; border-top:1px solid var(--ink); font-size:12px; text-transform:uppercase; letter-spacing:.04em; }
+  .sg-btns{ display:grid; grid-template-columns:1fr 1fr; gap:1px; background:var(--ink); border:1px solid var(--ink); }
+  .sg-btns button, .rate-btns button, .hist-btn{
+    height:52px; border:0; background:var(--paper); color:var(--ink); cursor:pointer;
+    font-family:'Archivo Black', sans-serif; font-size:16px; text-transform:uppercase; letter-spacing:-.01em;
+  }
+  .sg-btns .sg-yes{ background:var(--red); color:var(--paper); }
+  .rate{ padding:12px 16px; border-bottom:2px solid var(--ink); }
+  .rate-btns{ display:grid; grid-template-columns:repeat(3, 1fr); gap:1px; background:var(--ink); border:1px solid var(--ink); margin-top:8px; }
+  .rate-btns button{ height:64px; font-size:18px; }
+  .rate-btns button[aria-pressed="true"]{ background:var(--ink); color:var(--paper); }
+
+  /* ---------- HISTORY ---------- */
+  .hist-note{ padding:10px 16px; border-bottom:1px solid var(--ink); font-size:13px; line-height:1.45; }
+  .hist-note:empty{ display:none; }
+  .hist-btn{ width:100%; background:var(--red); color:var(--paper); margin-top:8px; }
+  .hist-row{ display:grid; grid-template-columns:1fr auto; gap:4px 12px; padding:12px 16px; border-bottom:1px solid var(--ink); }
+  .hist-row .when{ grid-column:1 / -1; color:var(--mute); }
+  .hist-row .what{ font-family:'Archivo Black', sans-serif; font-size:22px; text-transform:uppercase; letter-spacing:-.03em; line-height:1; }
+  .hist-row .rated{ align-self:center; padding:3px 8px; border:1px solid var(--ink); }
+  .hist-row .rated.hard{ background:var(--red); border-color:var(--red); color:var(--paper); }
+  .hist-row .rated.easy{ background:var(--ink); color:var(--paper); }
+  .hist-row .detail{ grid-column:1 / -1; color:var(--mute); }
+  .hist-row .hr{ grid-column:1 / -1; display:flex; gap:14px; align-items:baseline; }
+  .hist-row .hr b{ font-family:'Archivo Black', sans-serif; font-size:20px; font-weight:400; letter-spacing:-.03em; }
+  .hist-row svg{ grid-column:1 / -1; width:100%; height:56px; display:block; }
+  .hist-empty{ padding:24px 16px; color:var(--mute); }
+
   /* ---------- TABLET ---------- */
   @media (min-width:768px){
     .app{ max-width:1180px; }
@@ -244,7 +278,7 @@
     </div>
 
     <div class="dots-row" id="historyDots"></div>
-    <div class="h-title micro"><span>Last 7 days</span><span class="red" id="ellipWeek"></span></div>
+    <button class="h-title micro" id="historyBtn"><span>Last 7 days · History &gt;&gt;&gt;</span><span class="red" id="ellipWeek"></span></button>
 
     <nav class="type-list" id="typeList" aria-label="Workout types"></nav>
   </section>
@@ -257,6 +291,7 @@
     </div>
     <h2 class="page-title mega">Kettlebell</h2>
 
+    <div class="suggest" id="suggestKb" style="display:none;"></div>
     <div class="lib-scroll">
       <p class="lib-sub micro">Tap to toggle, then start</p>
       <div class="lib-list" id="exList"></div>
@@ -287,6 +322,7 @@
         <div class="tag-row" id="exTags"></div>
       </div>
       <div class="col-a">
+      <div class="suggest" id="suggestSolo" style="display:none;"></div>
       <div class="vol-readout"><span class="num" id="exVolNum">—</span><span class="unit" id="exVolUnit">—</span></div>
       <div class="howto" id="exHowto"></div>
       <div class="timer-box" id="timerBox" style="display:none;">
@@ -316,7 +352,15 @@
     <div class="complete-body">
       <div class="done-mark"></div>
       <h2 class="mega">Session<br>complete<span>.</span></h2>
-      <p class="sub">Logged to your streak. Same time tomorrow?<span id="ellipDone"></span></p>
+      <p class="sub">Logged to your history. Same time tomorrow?<span id="ellipDone"></span></p>
+      <div class="rate">
+        <span class="micro">How did it feel?</span>
+        <div class="rate-btns" id="rateBtns">
+          <button data-r="easy" aria-pressed="false">Easy</button>
+          <button data-r="right" aria-pressed="false">Right</button>
+          <button data-r="hard" aria-pressed="false">Hard</button>
+        </div>
+      </div>
       <div class="stat-row">
         <div class="stat-box"><div class="n" id="statExercises">0</div><div class="l micro">Exercises</div></div>
         <div class="stat-box"><div class="n red" id="statStreak">0</div><div class="l micro">Day streak</div></div>
@@ -329,8 +373,20 @@
     </div>
   </section>
 
+  <!-- ============ HISTORY SCREEN ============ -->
+  <section class="screen" id="screen-history">
+    <div class="status micro">
+      <button class="exit-btn back-btn" id="histHomeBtn">&lt; Home</button>
+      <span id="syncState"></span>
+    </div>
+    <h2 class="page-title mega">History</h2>
+    <div class="hist-note" id="ouraBox"></div>
+    <div id="histList"></div>
+  </section>
+
 </div>
 
+<script src="suggest.js"></script>
 <script>
 (function(){
 
@@ -446,12 +502,6 @@
   function loadEllip(){
     try{ return JSON.parse(localStorage.getItem(ELLIP_KEY)) || {}; }catch(e){ return {}; }
   }
-  function addEllipMinutes(min){
-    if(min <= 0) return;
-    var log = loadEllip(), k = dateKey(new Date());
-    log[k] = (log[k] || 0) + min;
-    try{ localStorage.setItem(ELLIP_KEY, JSON.stringify(log)); }catch(e){}
-  }
 
   function loadHistory(){
     try{
@@ -482,13 +532,143 @@
 
   var history = loadHistory();
 
+  // ---------- WORKOUT LOG, TARGETS, SYNC ----------
+  var S = window.TrennSuggest;
+  var SESS_KEY = 'trenn_sessions_v1', META_KEY = 'trenn_meta_v1', PAIR_KEY = 'trenn_key';
+  function loadJSON(k, d){ try{ var v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; }catch(e){ return d; } }
+  function saveJSON(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
+  // PHP turns an empty object into [], which would silently drop keys set on it later.
+  function obj(v){ return v && typeof v === 'object' && !Array.isArray(v) ? v : {}; }
+  function $(id){ return document.getElementById(id); }
+
+  var sessions = loadJSON(SESS_KEY, []);
+  var meta = obj(loadJSON(META_KEY, {}));
+  meta.targets = obj(meta.targets); meta.declined = obj(meta.declined);
+  var lightToday = null; // a "lighter today" suggestion that was accepted: {day, changes}
+  var flash = '';
+  function saveLog(){ saveJSON(SESS_KEY, sessions); saveJSON(META_KEY, meta); }
+  function markMeta(){ meta.dirty = Date.now(); saveLog(); }
+  function pairKey(){ try{ return localStorage.getItem(PAIR_KEY) || ''; }catch(e){ return ''; } }
+
+  // The pairing link (#key=...) and the return from the Oura login (#oura=ok|failed) arrive in the address.
+  (function(){
+    var m = location.hash.match(/key=([A-Za-z0-9_-]{20,})/), o = location.hash.match(/oura=(ok|failed)/);
+    if(m){ try{ localStorage.setItem(PAIR_KEY, m[1]); }catch(e){} flash = 'Paired with the server.'; }
+    if(o) flash = o[1] === 'ok' ? 'Oura connected. Heart rate is added to sessions after the Oura app syncs.' : 'Oura login did not finish. Try again.';
+    if(m || o) window.history.replaceState(null, '', location.pathname);
+  })();
+
+  function today(){ return dateKey(new Date()); }
+  function effectiveTargets(){
+    var t = Object.assign({}, meta.targets);
+    if(lightToday && lightToday.day === today()) lightToday.changes.forEach(function(c){ t[c.id] = c.value; });
+    return t;
+  }
+  // Puts the current targets into the exercises and the kettlebell list.
+  function applyTargets(){
+    var t = effectiveTargets();
+    KB.forEach(function(ex){
+      ex.volNum = S.show(t, ex.id);
+      var v = document.querySelector('.ex-card[data-id="'+ex.id+'"] .vol');
+      if(v) v.textContent = ex.volNum+' '+ex.volUnit;
+    });
+    ['jump-rope','elliptical'].forEach(function(id){ byId(id).timerSeconds = S.seconds(t, id); });
+  }
+  function fmtTarget(id, v){
+    if(id === 'elliptical') return (v/60)+' min';
+    if(id === 'jump-rope') return v+' s';
+    return v;
+  }
+
+  var syncing = false, syncAgain = false;
+  function sync(){
+    var key = pairKey();
+    if(!key) return;
+    if(syncing){ syncAgain = true; return; } // e.g. a rating tapped while the finished session is still uploading
+    syncing = true;
+    var sentAt = Date.now();
+    var body = { sessions: sessions.filter(function(s){ return s._dirty; }) };
+    if(meta.dirty){ body.targets = meta.targets; body.declined = meta.declined; }
+    fetch('api/sync.php', { method:'POST', headers:{ 'Content-Type':'application/json', 'X-Trenn-Key':key }, body:JSON.stringify(body) })
+      .then(function(r){ if(r.status === 401) throw 'key'; if(!r.ok) throw 'server'; return r.json(); })
+      .then(function(d){
+        // The server is the record; local changes made while this request was out stay and go next time.
+        var local = {};
+        sessions.forEach(function(s){ local[s.id] = s; });
+        var merged = d.sessions.map(function(s){
+          var l = local[s.id]; delete local[s.id];
+          if(l && l._dirty > sentAt){ l.hr = s.hr; return l; }
+          return s;
+        });
+        Object.keys(local).forEach(function(id){ if(local[id]._dirty) merged.push(local[id]); });
+        sessions = merged.sort(function(a, b){ return a.started_at - b.started_at; });
+        if(meta.dirty && meta.dirty <= sentAt) meta.dirty = false;
+        if(!meta.dirty){ meta.targets = obj(d.targets); meta.declined = obj(d.declined); }
+        meta.readiness = d.readiness; meta.readinessDay = today();
+        meta.oura = d.oura; meta.syncedAt = Date.now(); meta.syncError = '';
+        saveLog(); applyTargets(); refresh();
+      })
+      .catch(function(e){ meta.syncError = e === 'key' ? 'key' : 'offline'; refresh(); })
+      .then(function(){ syncing = false; if(syncAgain){ syncAgain = false; sync(); } });
+  }
+  // Redraws whatever screen is open after new data arrived.
+  function refresh(){
+    var open = document.querySelector('.screen.active').id;
+    if(open === 'screen-home') renderTop();
+    if(open === 'screen-library') renderSuggest('kb', 'suggestKb');
+    if(open === 'screen-history') renderHistory();
+    if(open === 'screen-session' && current && current.type !== 'kb' && !timerStarted) renderSuggest(current.type, 'suggestSolo');
+  }
+  window.addEventListener('online', sync);
+  document.addEventListener('visibilitychange', function(){ if(document.visibilityState === 'visible') sync(); });
+
+  // ---------- SUGGESTIONS ----------
+  function renderSuggest(type, boxId){
+    var box = $(boxId), day = today();
+    var readiness = meta.readinessDay === day ? meta.readiness : null;
+    var s = lightToday && lightToday.day === day ? null : S.suggest(type, sessions, meta.targets, readiness, meta.declined, day);
+    if(!s){ box.style.display = 'none'; box.innerHTML = ''; return; }
+    box.style.display = '';
+    box.innerHTML = '<div class="micro red">/// Suggestion</div><p>'+s.text+'</p><ul>'+
+      s.changes.map(function(c){ return '<li><span>'+byId(c.id).name+'</span><b>'+fmtTarget(c.id, c.from)+' → '+fmtTarget(c.id, c.to)+'</b></li>'; }).join('')+
+      '</ul><div class="sg-btns"><button class="sg-yes">'+(s.temporary ? 'Yes, today' : 'Yes')+'</button><button class="sg-no">Not now</button></div>';
+    box.querySelector('.sg-yes').addEventListener('click', function(){
+      if(s.temporary) lightToday = { day: day, changes: s.changes };
+      else {
+        s.changes.forEach(function(c){ meta.targets[c.id] = c.value; });
+        meta.targets.changedAt = obj(meta.targets.changedAt);
+        meta.targets.changedAt[type] = Date.now();
+        markMeta();
+      }
+      applyTargets(); afterTargetChange(); renderSuggest(type, boxId); sync();
+    });
+    box.querySelector('.sg-no').addEventListener('click', function(){
+      meta.declined[s.key] = Date.now();
+      markMeta(); renderSuggest(type, boxId); sync();
+    });
+  }
+  // A timed exercise waiting on its screen picks up a new target before its timer starts.
+  function afterTargetChange(){
+    if(current && current.type !== 'kb' && !timerStarted){ renderExercise(); }
+  }
+
+  function trainedDays(){
+    var set = new Set(history);
+    sessions.forEach(function(s){ set.add(dateKey(new Date(s.started_at))); });
+    return set;
+  }
+
   function renderTop(){
-    document.getElementById('streakNum').textContent = pad2(computeStreak(history));
+    var set = trainedDays();
+    document.getElementById('streakNum').textContent = pad2(computeStreak(Array.from(set)));
     var dotsRow = document.getElementById('historyDots');
     dotsRow.innerHTML = '';
-    var set = new Set(history);
     var labels = ['S','M','T','W','T','F','S'];
-    var ellip = loadEllip(), ellipWeek = 0;
+    // Elliptical minutes: the old per-day log (before sessions existed) plus logged sessions.
+    var ellip = loadEllip(), ellipWeek = 0, weekStart = new Date(); weekStart.setHours(0,0,0,0); weekStart.setDate(weekStart.getDate()-6);
+    sessions.forEach(function(s){
+      if(s.type === 'ellip' && s.started_at >= weekStart.getTime()) ellipWeek += Math.round(((s.items[0] || {}).seconds || 0) / 60);
+    });
     for(var i=6;i>=0;i--){
       var d = new Date();
       d.setDate(d.getDate()-i);
@@ -507,10 +687,10 @@
   function renderTypes(ellipWeek){
     var rope = byId('jump-rope'), ellip = byId('elliptical');
     var types = [
-      { name:'Kettlebell', meta:KB.length+' exercises', side:'+ push-ups', open:function(){ showScreen('screen-library'); } },
-      { name:'Jump rope', meta:timedVol(rope)+' sec', side:'Timed', open:function(){ startQueue([rope], 'screen-home'); } },
+      { name:'Kettlebell', meta:KB.length+' exercises', side:'+ push-ups', open:function(){ showScreen('screen-library'); renderSuggest('kb', 'suggestKb'); } },
+      { name:'Jump rope', meta:timedVol(rope)+' sec', side:'Timed', open:function(){ startQueue([rope], 'screen-home', 'rope'); } },
       { name:'Elliptical', meta:timedVol(ellip)+' min', side:ellipWeek ? ellipWeek+' min this week' : 'Timed',
-        open:function(){ startQueue([ellip], 'screen-home'); } }
+        open:function(){ startQueue([ellip], 'screen-home', 'ellip'); } }
     ];
     var list = document.getElementById('typeList');
     list.innerHTML = '';
@@ -569,6 +749,13 @@
   var timerStarted = false;
   var timerEndAt = 0;
   var sessionEllipMin = 0;
+  var current = null;     // the session being trained: {id, type, started_at, items:{exerciseId: item}}
+  var lastSession = null; // the one just finished, for the rating buttons
+
+  function newId(){
+    if(window.crypto && crypto.randomUUID) return crypto.randomUUID();
+    return Date.now().toString(36)+'-'+Math.random().toString(36).slice(2, 12);
+  }
 
   function showScreen(id){
     document.querySelectorAll('.screen').forEach(function(s){ s.classList.remove('active'); });
@@ -576,21 +763,25 @@
   }
 
   var returnTo = 'screen-home';
-  function startQueue(list, from){
+  function startQueue(list, from, type){
     if(list.length === 0) return;
+    applyTargets();
     queue = list;
     returnTo = from;
     qIndex = 0;
     sessionEllipMin = 0;
-    document.getElementById('screen-session').classList.toggle('solo', list.length === 1);
+    current = { id: newId(), type: type, started_at: Date.now(), items: {} };
+    document.getElementById('screen-session').classList.toggle('solo', type !== 'kb');
     keepAwake(true);
     showScreen('screen-session');
     renderExercise();
+    if(type !== 'kb') renderSuggest(type, 'suggestSolo');
+    else $('suggestSolo').style.display = 'none';
   }
   startBtn.addEventListener('click', function(){
-    startQueue(KB.filter(function(e){ return selected.has(e.id); }), 'screen-library');
+    startQueue(KB.filter(function(e){ return selected.has(e.id); }), 'screen-library', 'kb');
   });
-  document.getElementById('homeBtn').addEventListener('click', function(){ showScreen('screen-home'); });
+  document.getElementById('homeBtn').addEventListener('click', function(){ showScreen('screen-home'); renderTop(); });
 
   function renderExercise(){
     stopTimer();
@@ -653,6 +844,7 @@
       timerRunning = true;
       timerStarted = true;
       document.getElementById('timerStep').style.display = 'none';
+      $('suggestSolo').style.display = 'none'; // targets are set once the timer runs
       this.textContent = 'Pause';
       this.classList.add('running');
       var self = this;
@@ -684,10 +876,14 @@
 
   document.getElementById('nextBtn').addEventListener('click', function(){
     var ex = queue[qIndex];
-    if(ex.id === 'elliptical'){
-      // Timer used: log what was done. Never started: assume the planned minutes were done.
+    if(ex.volType === 'time'){
+      // Timer used: log what was done. Never started: assume the planned time was done.
       if(timerRunning) timerRemaining = Math.max(0, Math.ceil((timerEndAt - Date.now())/1000));
-      sessionEllipMin = Math.round((timerStarted ? ex.timerSeconds - timerRemaining : ex.timerSeconds) / 60);
+      var done = timerStarted ? ex.timerSeconds - timerRemaining : ex.timerSeconds;
+      current.items[ex.id] = { id: ex.id, seconds: done, planned: ex.timerSeconds };
+      if(ex.id === 'elliptical') sessionEllipMin = Math.round(done / 60);
+    } else {
+      current.items[ex.id] = { id: ex.id, target: ex.volNum+' '+ex.volUnit };
     }
     if(qIndex < queue.length - 1){
       qIndex++;
@@ -707,33 +903,107 @@
   document.getElementById('exitBtn').addEventListener('click', function(){
     stopTimer();
     keepAwake(false);
+    current = null; // left without finishing: nothing is logged
     showScreen(returnTo);
+    if(returnTo === 'screen-library') renderSuggest('kb', 'suggestKb');
     renderTop();
   });
 
   function finishSession(){
     stopTimer();
     keepAwake(false);
-    var today = dateKey(new Date());
-    if(history.indexOf(today) === -1){
-      history.push(today);
+    var day = today();
+    if(history.indexOf(day) === -1){
+      history.push(day);
       saveHistory(history);
     }
-    addEllipMinutes(sessionEllipMin);
+    lastSession = { id: current.id, type: current.type, started_at: current.started_at, ended_at: Date.now(), rating: null,
+                    items: Object.keys(current.items).map(function(k){ return current.items[k]; }), hr: null, _dirty: Date.now() };
+    current = null;
+    sessions.push(lastSession);
+    saveLog();
+    sync();
     document.getElementById('ellipDone').textContent = sessionEllipMin ? ' Elliptical: '+sessionEllipMin+' min.' : '';
-    document.getElementById('statExercises').textContent = queue.length;
-    document.getElementById('statStreak').textContent = computeStreak(history);
-    document.getElementById('statTotal').textContent = history.length;
+    document.getElementById('statExercises').textContent = lastSession.items.length;
+    document.getElementById('statStreak').textContent = computeStreak(Array.from(trainedDays()));
+    document.getElementById('statTotal').textContent = sessions.length;
+    document.querySelectorAll('#rateBtns button').forEach(function(b){ b.setAttribute('aria-pressed', 'false'); });
     showScreen('screen-complete');
   }
+
+  document.querySelectorAll('#rateBtns button').forEach(function(b){
+    b.addEventListener('click', function(){
+      if(!lastSession) return;
+      lastSession.rating = b.dataset.r;
+      lastSession._dirty = Date.now();
+      document.querySelectorAll('#rateBtns button').forEach(function(x){ x.setAttribute('aria-pressed', x === b); });
+      saveLog(); sync();
+    });
+  });
 
   document.getElementById('doneBtn').addEventListener('click', function(){
     showScreen('screen-home');
     renderTop();
   });
 
+  // ---------- HISTORY ----------
+  var TYPE_NAME = { kb:'Kettlebell', rope:'Jump rope', ellip:'Elliptical' };
+  var DAY = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  function hrChart(samples, seconds){
+    if(samples.length < 2) return '';
+    var bpm = samples.map(function(s){ return s[1]; }), lo = Math.min.apply(null, bpm) - 5, hi = Math.max.apply(null, bpm) + 5;
+    var pts = samples.map(function(s){
+      return (s[0] / Math.max(1, seconds) * 300).toFixed(1)+','+(56 - (s[1] - lo) / (hi - lo) * 52 - 2).toFixed(1);
+    }).join(' ');
+    return '<svg viewBox="0 0 300 56" preserveAspectRatio="none" aria-hidden="true"><polyline points="'+pts+
+      '" fill="none" stroke="#E61919" stroke-width="2" vector-effect="non-scaling-stroke"/></svg>';
+  }
+  function renderHistory(){
+    var key = pairKey();
+    var state = !key ? 'Not paired' : meta.syncError === 'key' ? 'Key rejected' : meta.syncError ? 'Offline · saved here'
+      : meta.syncedAt ? 'Synced '+new Date(meta.syncedAt).toTimeString().slice(0, 5) : 'Syncing…';
+    $('syncState').textContent = state;
+
+    var note = flash ? '<p>'+flash+'</p>' : '';
+    if(!key) note += '<p>History is kept on this device only. Open your pairing link once to save it on your server.</p>';
+    else if(meta.syncError === 'key') note += '<p>The server did not accept this device\'s key. Open the pairing link again.</p>';
+    else if(meta.oura === false) note += '<p>Connect Oura to add heart rate to your sessions.</p><button class="hist-btn" id="ouraConnect">Connect Oura</button>';
+    $('ouraBox').innerHTML = note;
+    var c = $('ouraConnect');
+    if(c) c.addEventListener('click', function(){
+      fetch('api/oura-connect.php', { method:'POST', headers:{ 'X-Trenn-Key':pairKey() } })
+        .then(function(r){ return r.json(); })
+        .then(function(d){ if(d.url) location.href = d.url; })
+        .catch(function(){ flash = 'Could not reach the server.'; renderHistory(); });
+    });
+
+    var list = sessions.slice().reverse().slice(0, 100);
+    $('histList').innerHTML = list.length ? list.map(function(s){
+      var d = new Date(s.started_at), secs = Math.round((s.ended_at - s.started_at) / 1000);
+      var items = s.items || [];
+      var detail = s.type === 'kb' ? items.map(function(it){ var ex = byId(it.id); return (ex ? ex.name : it.id)+' '+(it.target || ''); }).join(' · ')
+        : items[0] ? Math.round(items[0].seconds / (s.type === 'ellip' ? 60 : 1))+(s.type === 'ellip' ? ' min' : ' s')+' on the timer' : '';
+      var hr = !s.hr ? '<span class="micro">Heart rate: waiting for Oura</span>'
+        : !s.hr.samples.length ? '<span class="micro">No heart rate from Oura</span>'
+        : '<span class="micro">Avg</span><b>'+s.hr.avg+'</b><span class="micro">Max</span><b>'+s.hr.max+'</b><span class="micro">bpm · '+s.hr.samples.length+(s.hr.samples.length === 1 ? ' reading' : ' readings')+'</span>';
+      return '<div class="hist-row">'+
+        '<span class="when micro">'+DAY[d.getDay()]+' '+pad2(d.getDate())+'.'+pad2(d.getMonth()+1)+' · '+d.toTimeString().slice(0, 5)+' · '+Math.max(1, Math.round(secs / 60))+' min</span>'+
+        '<span class="what">'+TYPE_NAME[s.type]+'</span>'+
+        (s.rating ? '<span class="rated micro '+s.rating+'">'+s.rating+'</span>' : '<span></span>')+
+        '<span class="detail micro">'+detail+'</span>'+
+        '<span class="hr">'+hr+'</span>'+
+        (s.hr ? hrChart(s.hr.samples, secs) : '')+
+      '</div>';
+    }).join('') : '<p class="hist-empty micro">No sessions yet. Finish a workout and it shows up here.</p>';
+  }
+  $('historyBtn').addEventListener('click', function(){ showScreen('screen-history'); renderHistory(); sync(); });
+  $('histHomeBtn').addEventListener('click', function(){ flash = ''; showScreen('screen-home'); renderTop(); });
+
+  applyTargets();
   updateStartBtn();
   renderTop();
+  if(flash){ showScreen('screen-history'); renderHistory(); }
+  sync();
 })();
 </script>
 <script>
