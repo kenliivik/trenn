@@ -41,6 +41,9 @@ function db() {
             hr_checked_at INTEGER NOT NULL DEFAULT 0,
             updated_at INTEGER NOT NULL)');
         $pdo->exec('CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT NOT NULL)');
+        // Added with exercise sets: which kettlebell set a session trained (older rows stay empty = the first set).
+        $cols = array_column($pdo->query('PRAGMA table_info(sessions)')->fetchAll(), 'name');
+        if (!in_array('set_id', $cols, true)) $pdo->exec('ALTER TABLE sessions ADD COLUMN set_id TEXT');
     }
     return $pdo;
 }
@@ -109,18 +112,20 @@ function save_sessions($list) {
         if (!is_int($s['started_at'] ?? null) || !is_int($s['ended_at'] ?? null) || $s['ended_at'] < $s['started_at']) continue;
         if ($s['ended_at'] - $s['started_at'] > 6 * 3600 * 1000 || strlen($items) > 20000) continue;
         $rating = in_array($s['rating'] ?? null, RATINGS, true) ? $s['rating'] : null;
-        q('INSERT INTO sessions (id, type, started_at, ended_at, rating, items, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)
+        $set = is_string($s['set'] ?? null) && preg_match('/^[A-Za-z0-9-]{1,40}$/', $s['set']) ? $s['set'] : null;
+        q('INSERT INTO sessions (id, type, set_id, started_at, ended_at, rating, items, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(id) DO UPDATE SET rating = excluded.rating, items = excluded.items, ended_at = excluded.ended_at, updated_at = excluded.updated_at',
-            [$id, $s['type'], $s['started_at'], $s['ended_at'], $rating, $items, now_ms()]);
+            [$id, $s['type'], $set, $s['started_at'], $s['ended_at'], $rating, $items, now_ms()]);
         $saved++;
     }
     return $saved;
 }
 
 function list_sessions() {
-    $rows = q('SELECT id, type, started_at, ended_at, rating, items, hr FROM sessions WHERE started_at > ? ORDER BY started_at',
+    $rows = q('SELECT id, type, set_id AS "set", started_at, ended_at, rating, items, hr FROM sessions WHERE started_at > ? ORDER BY started_at',
         [now_ms() - 400 * 86400 * 1000])->fetchAll();
     foreach ($rows as &$r) {
+        if ($r['set'] === null) unset($r['set']);
         $r['started_at'] = (int) $r['started_at'];
         $r['ended_at'] = (int) $r['ended_at'];
         $r['items'] = json_decode($r['items'], true);
@@ -172,6 +177,30 @@ function readiness_today() {
     foreach ($rows as $r) if (($r['day'] ?? '') === $today) $score = $r['score'] ?? null;
     kv_set('readiness', ['day' => $today, 'score' => $score, 'checked' => time()]);
     return $score;
+}
+
+// ---------- photos ----------
+
+// Folder for exercise photos, served as plain images. Uploads keep their own .htaccess so nothing but images is ever served.
+function uploads_dir() {
+    $dir = getenv('TRENN_UPLOADS') ?: dirname(__DIR__) . '/uploads';
+    if (!is_dir($dir)) mkdir($dir, 0755, true);
+    if (!is_file($dir . '/.htaccess')) file_put_contents($dir . '/.htaccess',
+        "# Only images are served from here; the server names every file, so anything else was not put here by trenn.\n" .
+        "<FilesMatch \"^(?![0-9a-f]{32}\\.(jpg|png|webp)$)\">\n  Require all denied\n</FilesMatch>\n");
+    return $dir;
+}
+
+// Stores an uploaded photo under a random name after checking it really is an image. Returns its path for the app, or null.
+// shortcut: photos of removed exercises stay on the server, fine at a few hundred KB each; clean up if the folder ever grows.
+function store_photo($bytes) {
+    if (!is_string($bytes) || strlen($bytes) < 100 || strlen($bytes) > 3_000_000) return null;
+    $info = @getimagesizefromstring($bytes);
+    $ext = [IMAGETYPE_JPEG => 'jpg', IMAGETYPE_PNG => 'png', IMAGETYPE_WEBP => 'webp'][$info[2] ?? 0] ?? null;
+    if (!$ext || $info[0] < 16 || $info[1] < 16 || $info[0] > 6000 || $info[1] > 6000) return null;
+    $name = bin2hex(random_bytes(16)) . '.' . $ext;
+    file_put_contents(uploads_dir() . '/' . $name, $bytes);
+    return 'uploads/' . $name;
 }
 
 // ---------- Oura ----------

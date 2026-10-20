@@ -60,12 +60,12 @@
     }
   ];
 
+  // Built-in exercises: the five the library starts with (and their photos), plus jump rope and elliptical.
   function byId(id){ return EXERCISES.filter(function(e){ return e.id === id; })[0]; }
-  var KB = EXERCISES.filter(function(e){ return e.volType === 'reps'; });
 
-  function imgSrc(ex){ return ex.imgSrc || 'data:image/webp;base64,'+ex.img; }
+  function imgSrc(ex){ return ex.imgSrc || (ex.img ? 'data:image/webp;base64,'+ex.img : ''); }
   // Shows a timed exercise's set length in its own unit (40 sec, 20 min).
-  function timedVol(ex){ return ex.volUnit === 'min' ? ex.timerSeconds/60 : ex.timerSeconds; }
+  function timedVol(ex){ return ex.volUnit === 'min' ? Math.round(ex.timerSeconds/6)/10 : ex.timerSeconds; }
 
   // Keep the screen on during a session (Android Chrome; iOS ignores it).
   var wakeLock = null, sessionActive = false;
@@ -175,20 +175,75 @@
     if(lightToday && lightToday.day === today()) lightToday.changes.forEach(function(c){ t[c.id] = c.value; });
     return t;
   }
-  // Puts the current targets into the exercises and the kettlebell list.
+  // ---------- EXERCISE LIBRARY ----------
+  // Kettlebell sets and their exercises, edited in the app and stored on the server so every paired device has the same.
+  //   {exercises:{id:{id, name, target:[], how, kind:'reps'|'time', reps, unit, seconds, photo}}, sets:[{id, name, exercises:[ids]}]}
+  // photo: 'builtin' (picture inside this app), 'uploads/....jpg' (taken on a device) or null.
+  var TIMED_DEFS = {
+    'jump-rope':  { id:'jump-rope',  kind:'time', seconds:40,   step:15,  min:15,  max:600 },
+    'elliptical': { id:'elliptical', kind:'time', seconds:1200, step:300, min:300, max:7200 }
+  };
+  function defaultLibrary(){
+    var ex = {}, ids = [];
+    EXERCISES.filter(function(e){ return e.volType === 'reps'; }).forEach(function(e){
+      ex[e.id] = { id:e.id, name:e.name, target:e.target, how:e.how, kind:'reps', reps:e.volNum, unit:e.volUnit, photo:'builtin' };
+      ids.push(e.id);
+    });
+    return { exercises: ex, sets: [{ id:'main', name:'Kettlebell', exercises: ids }] };
+  }
+  function validLibrary(l){
+    if(!l || typeof l !== 'object' || !Array.isArray(l.sets) || !l.sets.length) return null;
+    l.exercises = obj(l.exercises);
+    l.sets.forEach(function(s){ s.exercises = (s.exercises || []).filter(function(id){ return l.exercises[id]; }); });
+    return l;
+  }
+  var library = meta.library = validLibrary(meta.library) || defaultLibrary();
+  // Before sets existed, kettlebell progress was dated under 'kb'.
+  if(meta.targets.changedAt && meta.targets.changedAt.kb && !meta.targets.changedAt['kb:main']) meta.targets.changedAt['kb:main'] = meta.targets.changedAt.kb;
+
+  function activeSet(){
+    return library.sets.filter(function(s){ return s.id === meta.activeSet; })[0] || library.sets[0];
+  }
+  function setName(id){
+    var s = library.sets.filter(function(x){ return x.id === (id || 'main'); })[0];
+    return s ? s.name : obj(library.oldSetNames)[id] || 'Kettlebell'; // deleted sets keep their name in history
+  }
+  function setDefs(set){ return set.exercises.map(function(id){ return library.exercises[id]; }); }
+  function nameOf(id){
+    var d = library.exercises[id] || byId(id);
+    return d ? d.name : id;
+  }
+  function builtinImg(id){ var b = byId(id); return b && b.img ? 'data:image/webp;base64,'+b.img : ''; }
+  function photoSrc(id, photo){ return photo === 'builtin' ? builtinImg(id) : photo || ''; }
+
+  // A library exercise as the session screen uses it, at its current target.
+  function runtime(def, t){
+    var r = { id:def.id, name:def.name, target:def.target || [], how:def.how || '', imgSrc: photoSrc(def.id, def.photo) };
+    if(def.kind === 'time'){
+      var l = S.timeLimits(def);
+      r.volType = 'time'; r.timerSeconds = S.current(def, t); r.volUnit = def.unit || (def.seconds >= 300 ? 'min' : 'sec');
+      r.adjustable = true; r.step = l.step; r.min = l.min; r.max = l.max;
+      r.volNum = timedVol(r);
+    } else {
+      r.volType = 'reps'; r.volNum = S.current(def, t); r.volUnit = def.unit || 'reps';
+    }
+    return r;
+  }
+  function activeRuntime(){
+    var t = effectiveTargets();
+    return setDefs(activeSet()).map(function(d){ return runtime(d, t); });
+  }
+  function kbGroup(){ var s = activeSet(); return { key:'kb:'+s.id, type:'kb', set:s.id, exercises:setDefs(s) }; }
+  function timedGroup(type){ return { key:type, type:type, exercises:[TIMED_DEFS[type === 'rope' ? 'jump-rope' : 'elliptical']] }; }
+
+  // Puts the current targets into the timed tiles (kettlebell sets read them when drawn).
   function applyTargets(){
     var t = effectiveTargets();
-    KB.forEach(function(ex){
-      ex.volNum = S.show(t, ex.id);
-      var v = document.querySelector('.ex-card[data-id="'+ex.id+'"] .vol');
-      if(v) v.textContent = ex.volNum+' '+ex.volUnit;
-    });
-    ['jump-rope','elliptical'].forEach(function(id){ byId(id).timerSeconds = S.seconds(t, id); });
+    ['jump-rope','elliptical'].forEach(function(id){ byId(id).timerSeconds = S.current(TIMED_DEFS[id], t); });
   }
   function fmtTarget(id, v){
-    if(id === 'elliptical') return (v/60)+' min';
-    if(id === 'jump-rope') return v+' s';
-    return v;
+    if(typeof v !== 'number') return v;
+    return v >= 300 && v % 60 === 0 ? (v/60)+' min' : v+' s';
   }
 
   var syncing = false, syncAgain = false;
@@ -199,7 +254,7 @@
     syncing = true;
     var sentAt = Date.now();
     var body = { sessions: sessions.filter(function(s){ return s._dirty; }) };
-    if(meta.dirty){ body.targets = meta.targets; body.declined = meta.declined; }
+    if(meta.dirty){ body.targets = meta.targets; body.declined = meta.declined; body.library = library; }
     fetch('api/sync.php', { method:'POST', headers:{ 'Content-Type':'application/json', 'X-Trenn-Key':key }, body:JSON.stringify(body) })
       .then(function(r){ if(r.status === 401) throw 'key'; if(!r.ok) throw 'server'; return r.json(); })
       .then(function(d){
@@ -214,7 +269,12 @@
         Object.keys(local).forEach(function(id){ if(local[id]._dirty) merged.push(local[id]); });
         sessions = merged.sort(function(a, b){ return a.started_at - b.started_at; });
         if(meta.dirty && meta.dirty <= sentAt) meta.dirty = false;
-        if(!meta.dirty){ meta.targets = obj(d.targets); meta.declined = obj(d.declined); }
+        if(!meta.dirty){
+          meta.targets = obj(d.targets); meta.declined = obj(d.declined);
+          var lib = validLibrary(d.library);
+          if(lib) library = meta.library = lib;
+          else { meta.dirty = Date.now(); syncAgain = true; } // the server has no library yet: send this one
+        }
         meta.readiness = d.readiness; meta.readinessDay = today();
         meta.oura = d.oura; meta.syncedAt = Date.now(); meta.syncError = '';
         saveLog(); applyTargets(); refresh();
@@ -226,38 +286,40 @@
   function refresh(){
     var open = document.querySelector('.screen.active').id;
     if(open === 'screen-home') renderTop();
-    if(open === 'screen-library') renderSuggest('kb', 'suggestKb');
+    if(open === 'screen-library') renderLibrary();
     if(open === 'screen-history') renderHistory();
-    if(open === 'screen-session' && current && current.type !== 'kb' && !timerStarted) renderSuggest(current.type, 'suggestSolo');
+    if(open === 'screen-session' && current && current.type !== 'kb' && !timerStarted) renderSuggest(timedGroup(current.type), 'suggestSolo');
   }
   window.addEventListener('online', sync);
   document.addEventListener('visibilitychange', function(){ if(document.visibilityState === 'visible') sync(); });
 
   // ---------- SUGGESTIONS ----------
-  function renderSuggest(type, boxId){
+  function renderSuggest(group, boxId){
     var box = $(boxId), day = today();
     var readiness = meta.readinessDay === day ? meta.readiness : null;
-    var s = lightToday && lightToday.day === day ? null : S.suggest(type, sessions, meta.targets, readiness, meta.declined, day);
+    var s = lightToday && lightToday.day === day ? null : S.suggest(group, sessions, meta.targets, readiness, meta.declined, day);
     if(!s){ box.style.display = 'none'; box.innerHTML = ''; return; }
     box.style.display = '';
     box.innerHTML = '<div class="micro red">/// Suggestion</div><p>'+s.text+'</p><ul>'+
-      s.changes.map(function(c){ return '<li><span>'+byId(c.id).name+'</span><b>'+fmtTarget(c.id, c.from)+' → '+fmtTarget(c.id, c.to)+'</b></li>'; }).join('')+
+      s.changes.map(function(c){ return '<li><span>'+esc(nameOf(c.id))+'</span><b>'+esc(fmtTarget(c.id, c.from))+' → '+esc(fmtTarget(c.id, c.to))+'</b></li>'; }).join('')+
       '</ul><div class="sg-btns"><button class="sg-yes">'+(s.temporary ? 'Yes, today' : 'Yes')+'</button><button class="sg-no">Not now</button></div>';
     box.querySelector('.sg-yes').addEventListener('click', function(){
       if(s.temporary) lightToday = { day: day, changes: s.changes };
       else {
         s.changes.forEach(function(c){ meta.targets[c.id] = c.value; });
         meta.targets.changedAt = obj(meta.targets.changedAt);
-        meta.targets.changedAt[type] = Date.now();
+        meta.targets.changedAt[group.key] = Date.now();
         markMeta();
       }
-      applyTargets(); afterTargetChange(); renderSuggest(type, boxId); sync();
+      applyTargets(); afterTargetChange(); refresh(); sync();
     });
     box.querySelector('.sg-no').addEventListener('click', function(){
       meta.declined[s.key] = Date.now();
-      markMeta(); renderSuggest(type, boxId); sync();
+      markMeta(); refresh(); sync();
     });
   }
+  // Names and texts typed by the user end up in the page: never as HTML.
+  function esc(v){ return String(v).replace(/[&<>"']/g, function(c){ return '&#'+c.charCodeAt(0)+';'; }); }
   // A timed exercise waiting on its screen picks up a new target before its timer starts.
   function afterTargetChange(){
     if(current && current.type !== 'kb' && !timerStarted){ renderExercise(); }
@@ -298,7 +360,9 @@
   function renderTypes(ellipWeek){
     var rope = byId('jump-rope'), ellip = byId('elliptical');
     var types = [
-      { name:'Kettlebell', meta:KB.length+' exercises', side:'+ push-ups', open:function(){ showScreen('screen-library'); renderSuggest('kb', 'suggestKb'); } },
+      { name:'Kettlebell', meta:activeSet().exercises.length+(activeSet().exercises.length === 1 ? ' exercise · ' : ' exercises · ')+esc(activeSet().name),
+        side:library.sets.length > 1 ? library.sets.length+' sets' : '1 set',
+        open:function(){ editing = false; showScreen('screen-library'); renderLibrary(); } },
       { name:'Jump rope', meta:timedVol(rope)+' sec', side:'Timed', open:function(){ startQueue([rope], 'screen-home', 'rope'); } },
       { name:'Elliptical', meta:timedVol(ellip)+' min', side:ellipWeek ? ellipWeek+' min this week' : 'Timed',
         open:function(){ startQueue([ellip], 'screen-home', 'ellip'); } }
@@ -316,39 +380,196 @@
     });
   }
 
-  // ---------- LIBRARY ----------
-  var selected = new Set(KB.map(function(e){return e.id;}));
-  var exListEl = document.getElementById('exList');
+  // ---------- KETTLEBELL SETS ----------
+  var editing = false;
+  var selected = new Set(), selectedFor = null; // which exercises of the open set are ticked for today
+  function rid(prefix){ return prefix + Math.random().toString(36).slice(2, 10); }
+  function saveLibrary(){ markMeta(); sync(); }
 
-  KB.forEach(function(ex, i){
-    var card = document.createElement('div');
-    card.className = 'ex-card' + (selected.has(ex.id) ? ' selected' : '');
-    card.dataset.id = ex.id;
-    card.setAttribute('role', 'checkbox');
-    card.setAttribute('aria-checked', selected.has(ex.id));
-    card.tabIndex = 0;
-    card.innerHTML =
-      '<span class="n">'+pad2(i+1)+'</span>'+
-      '<div class="ex-info">'+
-        '<div class="name">'+ex.name+'</div>'+
-        '<div class="target">'+ex.target.join(' · ')+'</div>'+
-      '</div>'+
-      '<span class="vol">'+ex.volNum+' '+ex.volUnit+'</span>'+
-      '<span class="checkbox"></span>';
-    card.addEventListener('keydown', function(e){ if(e.key === ' ' || e.key === 'Enter'){ e.preventDefault(); card.click(); } });
-    card.addEventListener('click', function(){
-      if(selected.has(ex.id)){ selected.delete(ex.id); card.classList.remove('selected'); }
-      else { selected.add(ex.id); card.classList.add('selected'); }
-      card.setAttribute('aria-checked', selected.has(ex.id));
-      updateStartBtn();
+  function renderLibrary(){
+    var set = activeSet(), list = activeRuntime();
+    if(selectedFor !== set.id){ selected = new Set(set.exercises); selectedFor = set.id; }
+    selected.forEach(function(id){ if(set.exercises.indexOf(id) < 0) selected.delete(id); });
+    $('setTitle').textContent = set.name;
+    $('editBtn').textContent = editing ? 'Done' : 'Edit';
+    $('libHint').textContent = editing ? 'Tap an exercise to edit it · ▲▼ to reorder' : 'Tap to toggle, then start';
+    $('screen-library').classList.toggle('editing', editing);
+
+    var tabs = $('setTabs');
+    tabs.innerHTML = '';
+    library.sets.forEach(function(s){
+      var b = document.createElement('button');
+      b.className = 'set-tab'; b.textContent = s.name; b.setAttribute('aria-pressed', s.id === set.id);
+      b.addEventListener('click', function(){ meta.activeSet = s.id; saveLog(); renderLibrary(); });
+      tabs.appendChild(b);
     });
-    exListEl.appendChild(card);
+    var add = document.createElement('button');
+    add.className = 'set-tab set-new'; add.textContent = '+ New set';
+    add.addEventListener('click', newSet);
+    tabs.appendChild(add);
+
+    var el = $('exList');
+    el.innerHTML = '';
+    list.forEach(function(ex, i){
+      var card = document.createElement('div');
+      card.className = 'ex-card' + (!editing && selected.has(ex.id) ? ' selected' : '');
+      card.dataset.id = ex.id;
+      card.tabIndex = 0;
+      card.innerHTML = '<span class="n">'+pad2(i+1)+'</span>'+
+        '<div class="ex-info"><div class="name">'+esc(ex.name)+'</div><div class="target">'+esc(ex.target.join(' · '))+'</div></div>'+
+        (editing ? '<button class="mv" data-d="-1" aria-label="Move up">▲</button><button class="mv" data-d="1" aria-label="Move down">▼</button>'
+                 : '<span class="vol">'+esc(ex.volNum+' '+ex.volUnit)+'</span><span class="checkbox"></span>');
+      if(editing){
+        card.setAttribute('role', 'button');
+        card.querySelectorAll('.mv').forEach(function(b){
+          b.addEventListener('click', function(e){
+            e.stopPropagation();
+            var j = i + Number(b.dataset.d);
+            if(j < 0 || j >= set.exercises.length) return;
+            set.exercises.splice(j, 0, set.exercises.splice(i, 1)[0]);
+            saveLibrary(); renderLibrary();
+          });
+        });
+        card.addEventListener('click', function(){ openForm(ex.id); });
+      } else {
+        card.setAttribute('role', 'checkbox');
+        card.setAttribute('aria-checked', selected.has(ex.id));
+        card.addEventListener('click', function(){
+          if(selected.has(ex.id)) selected.delete(ex.id); else selected.add(ex.id);
+          card.classList.toggle('selected', selected.has(ex.id));
+          card.setAttribute('aria-checked', selected.has(ex.id));
+          updateStartBtn();
+        });
+      }
+      card.addEventListener('keydown', function(e){ if(e.target === card && (e.key === ' ' || e.key === 'Enter')){ e.preventDefault(); card.click(); } });
+      el.appendChild(card);
+    });
+    if(!list.length && !editing) el.innerHTML = '<p class="hist-empty micro">No exercises in this set yet. Tap Edit to add some.</p>';
+    $('setTools').style.display = editing ? '' : 'none';
+    $('deleteSetBtn').style.display = library.sets.length > 1 ? '' : 'none';
+    if(editing) $('suggestKb').style.display = 'none'; else renderSuggest(kbGroup(), 'suggestKb');
+    updateStartBtn();
+  }
+
+  function newSet(){
+    var name = (prompt('Name for the new set', 'Set '+(library.sets.length+1)) || '').trim().slice(0, 30);
+    if(!name) return;
+    var s = { id: rid('s-'), name: name, exercises: [] };
+    library.sets.push(s);
+    meta.activeSet = s.id; editing = true;
+    saveLibrary(); renderLibrary();
+  }
+  // An exercise no set uses anymore is dropped; old sessions keep its name.
+  function dropUnused(id){
+    if(!library.sets.some(function(s){ return s.exercises.indexOf(id) >= 0; })) delete library.exercises[id];
+  }
+  $('editBtn').addEventListener('click', function(){ editing = !editing; renderLibrary(); });
+  $('addExBtn').addEventListener('click', function(){ openForm(null); });
+  $('renameSetBtn').addEventListener('click', function(){
+    var s = activeSet(), name = (prompt('New name for this set', s.name) || '').trim().slice(0, 30);
+    if(name){ s.name = name; saveLibrary(); renderLibrary(); }
+  });
+  $('deleteSetBtn').addEventListener('click', function(){
+    var s = activeSet();
+    if(library.sets.length < 2 || !confirm('Delete the set "'+s.name+'"? Your history keeps its sessions.')) return;
+    library.sets = library.sets.filter(function(x){ return x !== s; });
+    library.oldSetNames = obj(library.oldSetNames);
+    library.oldSetNames[s.id] = s.name;
+    s.exercises.forEach(dropUnused);
+    meta.activeSet = library.sets[0].id;
+    saveLibrary(); renderLibrary();
+  });
+
+  // ---------- EXERCISE FORM ----------
+  var form = null; // {id (null = new), kind, photo}
+  function openForm(id){
+    var d = id ? library.exercises[id] : { name:'', target:[], how:'', kind:'reps', reps:'8–10', unit:'reps', seconds:45, photo:null };
+    form = { id: id, kind: d.kind, photo: d.photo || null };
+    $('exFormTitle').textContent = id ? 'Edit exercise' : 'New exercise';
+    $('fName').value = d.name; $('fTarget').value = (d.target || []).join(', '); $('fHow').value = d.how || '';
+    $('fReps').value = d.reps || '8–10'; $('fUnit').value = d.kind === 'reps' ? (d.unit || 'reps') : 'reps'; $('fSecs').value = d.seconds || 45;
+    $('fErr').textContent = '';
+    $('exRemove').style.display = id ? '' : 'none';
+    renderFormKind(); renderPhoto();
+    showScreen('screen-exform');
+  }
+  function renderFormKind(){
+    document.querySelectorAll('#fKind button').forEach(function(b){ b.setAttribute('aria-pressed', b.dataset.k === form.kind); });
+    $('fRepsRow').style.display = form.kind === 'reps' ? '' : 'none';
+    $('fTimeRow').style.display = form.kind === 'time' ? '' : 'none';
+  }
+  function renderPhoto(msg){
+    // Saving mid-upload would lose the photo, so Save waits.
+    $('exSave').disabled = msg === 'Uploading…';
+    $('exSave').textContent = msg === 'Uploading…' ? 'Uploading photo…' : 'Save';
+    var src = form.photo ? photoSrc(form.id, form.photo) : '';
+    $('fPhotoPrev').src = src;
+    $('fPhotoPrev').style.display = src ? '' : 'none';
+    $('fPhotoRemove').style.display = src ? '' : 'none';
+    $('fPhotoMsg').textContent = msg || '';
+  }
+  document.querySelectorAll('#fKind button').forEach(function(b){
+    b.addEventListener('click', function(){ form.kind = b.dataset.k; renderFormKind(); });
+  });
+  $('fPhotoRemove').addEventListener('click', function(){ form.photo = null; renderPhoto(); });
+  // Photos are shrunk on the device (phone cameras give several MB) and uploaded straight away.
+  $('fPhoto').addEventListener('change', function(){
+    var file = this.files[0];
+    this.value = '';
+    if(!file) return;
+    if(!pairKey()){ renderPhoto('Pair this device in History first, then add photos.'); return; }
+    renderPhoto('Uploading…');
+    var reader = new FileReader();
+    reader.onload = function(){
+      var img = new Image();
+      img.onload = function(){
+        var scale = Math.min(1, 1280 / Math.max(img.width, img.height));
+        var c = document.createElement('canvas');
+        c.width = Math.round(img.width * scale); c.height = Math.round(img.height * scale);
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        c.toBlob(function(blob){
+          fetch('api/upload.php', { method:'POST', headers:{ 'Content-Type':'image/jpeg', 'X-Trenn-Key':pairKey() }, body:blob })
+            .then(function(r){ return r.ok ? r.json() : Promise.reject(); })
+            .then(function(d){ form.photo = d.path; renderPhoto(); })
+            .catch(function(){ renderPhoto('Upload failed. Check the connection and try again.'); });
+        }, 'image/jpeg', 0.82);
+      };
+      img.onerror = function(){ renderPhoto('That file could not be read as a photo.'); };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+  $('exCancel').addEventListener('click', function(){ showScreen('screen-library'); renderLibrary(); });
+  $('exSave').addEventListener('click', function(){
+    var name = $('fName').value.trim().slice(0, 40), reps = S.normReps($('fReps').value).slice(0, 20), secs = Math.round(Number($('fSecs').value));
+    if(!name){ $('fErr').textContent = 'Give the exercise a name.'; return; }
+    if(form.kind === 'reps' && !reps){ $('fErr').textContent = 'Enter the reps, e.g. 8–10, 5 or 5 + 5.'; return; }
+    if(form.kind === 'time' && !(secs >= 5 && secs <= 3600)){ $('fErr').textContent = 'Seconds must be between 5 and 3600.'; return; }
+    var def = { id: form.id || rid('x-'), name: name, kind: form.kind, photo: form.photo,
+      target: $('fTarget').value.split(',').map(function(s){ return s.trim().slice(0, 20); }).filter(Boolean).slice(0, 6),
+      how: $('fHow').value.trim().slice(0, 400) };
+    if(form.kind === 'reps'){ def.reps = reps; def.unit = $('fUnit').value.trim().slice(0, 15) || 'reps'; }
+    else { def.seconds = secs; def.unit = secs >= 300 ? 'min' : 'sec'; }
+    var old = library.exercises[def.id];
+    // A new starting point typed in replaces the progress made so far.
+    if(!old || old.kind !== def.kind || old.reps !== def.reps || old.seconds !== def.seconds) delete meta.targets[def.id];
+    library.exercises[def.id] = def;
+    if(!form.id){ activeSet().exercises.push(def.id); selected.add(def.id); }
+    saveLibrary(); showScreen('screen-library'); renderLibrary();
+  });
+  $('exRemove').addEventListener('click', function(){
+    var s = activeSet(), id = form.id;
+    if(!confirm('Remove "'+library.exercises[id].name+'" from '+s.name+'? Your history keeps it.')) return;
+    s.exercises = s.exercises.filter(function(x){ return x !== id; });
+    dropUnused(id);
+    saveLibrary(); showScreen('screen-library'); renderLibrary();
   });
 
   var startBtn = document.getElementById('startBtn');
   function updateStartBtn(){
-    startBtn.disabled = selected.size === 0;
-    document.getElementById('selCount').textContent = pad2(selected.size);
+    var n = activeSet().exercises.filter(function(id){ return selected.has(id); }).length;
+    startBtn.disabled = n === 0;
+    document.getElementById('selCount').textContent = pad2(n);
   }
 
   // ---------- SESSION STATE ----------
@@ -381,16 +602,16 @@
     returnTo = from;
     qIndex = 0;
     sessionEllipMin = 0;
-    current = { id: newId(), type: type, started_at: Date.now(), items: {} };
+    current = { id: newId(), type: type, set: type === 'kb' ? activeSet().id : undefined, started_at: Date.now(), items: {} };
     document.getElementById('screen-session').classList.toggle('solo', type !== 'kb');
     keepAwake(true);
     showScreen('screen-session');
     renderExercise();
-    if(type !== 'kb') renderSuggest(type, 'suggestSolo');
+    if(type !== 'kb') renderSuggest(timedGroup(type), 'suggestSolo');
     else $('suggestSolo').style.display = 'none';
   }
   startBtn.addEventListener('click', function(){
-    startQueue(KB.filter(function(e){ return selected.has(e.id); }), 'screen-library', 'kb');
+    startQueue(activeRuntime().filter(function(e){ return selected.has(e.id); }), 'screen-library', 'kb');
   });
   document.getElementById('homeBtn').addEventListener('click', function(){ showScreen('screen-home'); renderTop(); });
 
@@ -404,15 +625,17 @@
       return '<i class="'+(i < qIndex ? 'd' : i === qIndex ? 'c' : '')+'"></i>';
     }).join('');
     var next = queue[qIndex+1];
-    document.getElementById('exVolLabel').textContent = 'Unit / '+ex.id;
+    document.getElementById('exVolLabel').textContent = current && current.set ? setName(current.set) : 'Timed';
     document.getElementById('exNext').textContent = next ? '>> Next: '+next.name : '>> Last one';
-    document.getElementById('exImage').src = imgSrc(ex);
+    var src = imgSrc(ex);
+    document.getElementById('exImage').src = src;
+    document.querySelector('.exercise-media').style.display = src ? '' : 'none'; // exercises without a photo: text only
     document.getElementById('exName').textContent = ex.name;
     var tagRow = document.getElementById('exTags');
-    tagRow.innerHTML = ex.target.map(function(t){ return '<span class="tag">'+t+'</span>'; }).join('');
+    tagRow.innerHTML = ex.target.map(function(t){ return '<span class="tag">'+esc(t)+'</span>'; }).join('');
     document.getElementById('exVolNum').textContent = ex.adjustable ? timedVol(ex) : ex.volNum;
     document.getElementById('exVolUnit').textContent = ex.volUnit;
-    document.getElementById('exHowto').innerHTML = '<b>///</b> '+ex.how;
+    document.getElementById('exHowto').innerHTML = ex.how ? '<b>///</b> '+esc(ex.how) : '';
     document.getElementById('prevBtn').style.visibility = qIndex === 0 && queue.length > 1 ? 'hidden' : 'visible';
     document.getElementById('nextBtn').textContent = queue.length === 1 ? 'Done' : (qIndex === queue.length-1) ? 'Finish Circuit' : 'Set Complete';
 
@@ -491,10 +714,10 @@
       // Timer used: log what was done. Never started: assume the planned time was done.
       if(timerRunning) timerRemaining = Math.max(0, Math.ceil((timerEndAt - Date.now())/1000));
       var done = timerStarted ? ex.timerSeconds - timerRemaining : ex.timerSeconds;
-      current.items[ex.id] = { id: ex.id, seconds: done, planned: ex.timerSeconds };
+      current.items[ex.id] = { id: ex.id, name: ex.name, seconds: done, planned: ex.timerSeconds };
       if(ex.id === 'elliptical') sessionEllipMin = Math.round(done / 60);
     } else {
-      current.items[ex.id] = { id: ex.id, target: ex.volNum+' '+ex.volUnit };
+      current.items[ex.id] = { id: ex.id, name: ex.name, target: ex.volNum+' '+ex.volUnit };
     }
     if(qIndex < queue.length - 1){
       qIndex++;
@@ -516,7 +739,7 @@
     keepAwake(false);
     current = null; // left without finishing: nothing is logged
     showScreen(returnTo);
-    if(returnTo === 'screen-library') renderSuggest('kb', 'suggestKb');
+    if(returnTo === 'screen-library') renderLibrary();
     renderTop();
   });
 
@@ -528,7 +751,7 @@
       history.push(day);
       saveHistory(history);
     }
-    lastSession = { id: current.id, type: current.type, started_at: current.started_at, ended_at: Date.now(), rating: null,
+    lastSession = { id: current.id, type: current.type, set: current.set, started_at: current.started_at, ended_at: Date.now(), rating: null,
                     items: Object.keys(current.items).map(function(k){ return current.items[k]; }), hr: null, _dirty: Date.now() };
     current = null;
     sessions.push(lastSession);
@@ -604,16 +827,16 @@
     $('histList').innerHTML = list.length ? list.map(function(s){
       var d = new Date(s.started_at), secs = Math.round((s.ended_at - s.started_at) / 1000);
       var items = s.items || [];
-      var detail = s.type === 'kb' ? items.map(function(it){ var ex = byId(it.id); return (ex ? ex.name : it.id)+' '+(it.target || ''); }).join(' · ')
+      var detail = s.type === 'kb' ? items.map(function(it){ return (it.name || nameOf(it.id))+' '+(it.target || (it.seconds ? it.seconds+' s' : '')); }).join(' · ')
         : items[0] ? Math.round(items[0].seconds / (s.type === 'ellip' ? 60 : 1))+(s.type === 'ellip' ? ' min' : ' s')+' on the timer' : '';
       var hr = !s.hr ? '<span class="micro">Heart rate: waiting for Oura</span>'
         : !s.hr.samples.length ? '<span class="micro">No heart rate from Oura</span>'
         : '<span class="micro">Avg</span><b>'+s.hr.avg+'</b><span class="micro">Max</span><b>'+s.hr.max+'</b><span class="micro">bpm · '+s.hr.samples.length+(s.hr.samples.length === 1 ? ' reading' : ' readings')+'</span>';
       return '<div class="hist-row">'+
         '<span class="when micro">'+DAY[d.getDay()]+' '+pad2(d.getDate())+'.'+pad2(d.getMonth()+1)+' · '+d.toTimeString().slice(0, 5)+' · '+Math.max(1, Math.round(secs / 60))+' min</span>'+
-        '<span class="what">'+TYPE_NAME[s.type]+'</span>'+
+        '<span class="what">'+esc(s.type === 'kb' ? setName(s.set) : TYPE_NAME[s.type])+'</span>'+
         (s.rating ? '<span class="rated micro '+s.rating+'">'+s.rating+'</span>' : '<span></span>')+
-        '<span class="detail micro">'+detail+'</span>'+
+        '<span class="detail micro">'+esc(detail)+'</span>'+
         '<span class="hr">'+hr+'</span>'+
         (s.hr ? hrChart(s.hr.samples, secs) : '')+
       '</div>';

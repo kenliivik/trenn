@@ -54,12 +54,12 @@ jobs:
           SSH="ssh -i $HOME/deploy_key -p $SSH_PORT -o BatchMode=yes -o ConnectTimeout=20 $HOSTKEY $SSH_USER@$SSH_HOST"
           $SSH true || { echo "::error::SSH login to $SSH_HOST:$SSH_PORT failed (see the ssh error above)"; exit 1; }
           # Mirror the app to the server, removing stale files but keeping what the host manages (.well-known for
-          # Let's Encrypt, elkdata_*) and api/data/ (database and config). Repo-only folders are not uploaded.
+          # Let's Encrypt, elkdata_*), api/data/ (database and config) and uploads/ (exercise photos). Repo-only folders are not uploaded.
           lftp -e "set sftp:connect-program 'ssh -a -x -i $HOME/deploy_key $HOSTKEY'; \
             mirror --reverse --delete --verbose \
               --exclude-glob .git/ --exclude-glob .github/ --exclude-glob tests/ \
               --exclude-glob .well-known/ --exclude-glob 'elkdata_*' --exclude-glob 'elkdata_*/' \
-              --exclude-glob api/data/ --exclude-glob data/ \
+              --exclude-glob api/data/ --exclude-glob data/ --exclude-glob uploads/ \
               ./ $DEPLOY_DIR/; bye" \
             -p "$SSH_PORT" -u "$SSH_USER," "sftp://$SSH_HOST"
           # The API config is written from the secrets once all three exist, through stdin so they never appear in a command line.

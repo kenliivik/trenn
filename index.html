@@ -222,6 +222,38 @@
   .rate-btns button{ height:64px; font-size:18px; }
   .rate-btns button[aria-pressed="true"]{ background:var(--ink); color:var(--paper); }
 
+  /* ---------- SETS, EDIT MODE, EXERCISE FORM ---------- */
+  .set-tabs{ display:flex; overflow-x:auto; border-bottom:1px solid var(--ink); scrollbar-width:none; }
+  .set-tab{ flex:0 0 auto; height:44px; padding:0 14px; border:0; border-right:1px solid var(--ink); background:var(--paper); color:var(--ink);
+    font:700 12px 'JetBrains Mono', monospace; letter-spacing:.06em; text-transform:uppercase; cursor:pointer; }
+  .set-tab[aria-pressed="true"]{ background:var(--ink); color:var(--paper); }
+  .set-tab.set-new{ color:var(--red); }
+  .editing .cta-dock{ display:none; }
+  .editing .ex-card{ grid-template-columns:40px 1fr 52px 52px; }
+  .editing .ex-card .name{ text-decoration:none; color:var(--ink); } /* not "deselected" while editing */
+  .set-tools .sg-btns, .form .sg-btns{ display:flex; } /* a hidden button leaves no empty cell */
+  .set-tools .sg-btns > *, .form .sg-btns > *{ flex:1; }
+  .form .file-btn{ flex-direction:row; text-align:center; padding:0 10px; }
+  .ex-card .mv{ border:0; border-left:1px solid var(--ink); background:var(--paper); color:var(--ink); font-size:16px; cursor:pointer; justify-content:center; }
+  .set-tools{ padding:12px 16px 24px; display:grid; gap:10px; }
+  .set-tools .hist-btn{ margin:0; }
+  .form{ flex:1; padding:12px 16px 24px; display:flex; flex-direction:column; gap:12px; }
+  .form label{ display:flex; flex-direction:column; gap:6px; }
+  .form input, .form textarea{ width:100%; border:1px solid var(--ink); background:#fff; color:var(--ink); padding:10px 12px;
+    font:16px 'JetBrains Mono', monospace; text-transform:none; letter-spacing:0; } /* 16px+ stops iPhones zooming in */
+  .form input{ height:48px; }
+  .form-row{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .seg{ display:grid; grid-template-columns:1fr 1fr; gap:1px; background:var(--ink); border:1px solid var(--ink); }
+  .seg button{ height:48px; border:0; background:var(--paper); color:var(--ink); cursor:pointer;
+    font-family:'Archivo Black', sans-serif; font-size:16px; text-transform:uppercase; }
+  .seg button[aria-pressed="true"]{ background:var(--ink); color:var(--paper); }
+  .photo-prev{ width:100%; aspect-ratio:1408/768; object-fit:cover; border:1px solid var(--ink); background:#fff; }
+  .file-btn{ height:52px; display:flex !important; align-items:center; justify-content:center; background:var(--paper); cursor:pointer;
+    font-family:'Archivo Black', sans-serif; font-size:14px; text-transform:uppercase; }
+  .form-err{ margin:0; color:var(--red); font-weight:700; }
+  .form-err:empty, #fPhotoMsg:empty{ display:none; }
+  .form-remove{ background:var(--paper) !important; color:var(--red) !important; border:1px solid var(--red); }
+
   /* ---------- HISTORY ---------- */
   .hist-note{ padding:10px 16px; border-bottom:1px solid var(--ink); font-size:13px; line-height:1.45; }
   .hist-note:empty{ display:none; }
@@ -290,14 +322,19 @@
   <section class="screen" id="screen-library">
     <div class="status micro">
       <button class="exit-btn back-btn" id="homeBtn">&lt; Home</button>
-      <span>Kettlebell + push-ups</span>
+      <button class="exit-btn" id="editBtn">Edit</button>
     </div>
-    <h2 class="page-title mega">Kettlebell</h2>
+    <h2 class="page-title mega" id="setTitle">Kettlebell</h2>
+    <div class="set-tabs" id="setTabs"></div>
 
     <div class="suggest" id="suggestKb" style="display:none;"></div>
     <div class="lib-scroll">
-      <p class="lib-sub micro">Tap to toggle, then start</p>
+      <p class="lib-sub micro" id="libHint">Tap to toggle, then start</p>
       <div class="lib-list" id="exList"></div>
+      <div class="set-tools" id="setTools" style="display:none;">
+        <button class="hist-btn" id="addExBtn">+ Add exercise</button>
+        <div class="sg-btns"><button id="renameSetBtn">Rename set</button><button id="deleteSetBtn">Delete set</button></div>
+      </div>
     </div>
 
     <div class="cta-dock">
@@ -373,6 +410,40 @@
     </div>
     <div class="cta-dock" style="grid-template-columns:1fr;">
       <button class="btn btn-done" id="doneBtn">Back to home</button>
+    </div>
+  </section>
+
+  <!-- ============ EXERCISE FORM ============ -->
+  <section class="screen" id="screen-exform">
+    <div class="status micro">
+      <button class="exit-btn back-btn" id="exCancel">&lt; Cancel</button>
+      <span id="exFormTitle">New exercise</span>
+    </div>
+    <div class="form">
+      <label class="micro">Name<input id="fName" maxlength="40" autocomplete="off"></label>
+      <label class="micro">Muscles, comma separated<input id="fTarget" maxlength="120" autocomplete="off" placeholder="Glutes, Hamstrings"></label>
+      <span class="micro">Measured in</span>
+      <div class="seg" id="fKind"><button data-k="reps">Reps</button><button data-k="time">Time</button></div>
+      <div class="form-row" id="fRepsRow">
+        <label class="micro">Reps<input id="fReps" maxlength="20" autocomplete="off" placeholder="8–10, 5 or 5 + 5"></label>
+        <label class="micro">Unit<input id="fUnit" maxlength="15" autocomplete="off" placeholder="reps, per side"></label>
+      </div>
+      <div class="form-row" id="fTimeRow">
+        <label class="micro">Seconds<input id="fSecs" type="number" inputmode="numeric" min="5" max="3600"></label>
+      </div>
+      <label class="micro">How to<textarea id="fHow" rows="4" maxlength="400"></textarea></label>
+      <span class="micro">Photo (optional)</span>
+      <img id="fPhotoPrev" class="photo-prev" alt="">
+      <div class="sg-btns">
+        <label class="file-btn">Take or pick photo<input type="file" accept="image/*" id="fPhoto" hidden></label>
+        <button id="fPhotoRemove">Remove photo</button>
+      </div>
+      <p class="micro" id="fPhotoMsg"></p>
+      <p class="form-err" id="fErr"></p>
+      <button class="hist-btn form-remove" id="exRemove">Remove from this set</button>
+    </div>
+    <div class="cta-dock" style="grid-template-columns:1fr;">
+      <button class="btn btn-primary" id="exSave">Save</button>
     </div>
   </section>
 

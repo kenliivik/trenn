@@ -3,7 +3,7 @@
 <FilesMatch "\.php$">
   Require all denied
 </FilesMatch>
-<FilesMatch "^(sync|oura-connect|oura-callback|health)\.php$">
+<FilesMatch "^(sync|upload|oura-connect|oura-callback|health)\.php$">
   Require all granted
 </FilesMatch>
 RedirectMatch 404 ^/api/data(/|$)

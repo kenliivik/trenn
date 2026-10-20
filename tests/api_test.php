@@ -1,6 +1,7 @@
 <?php
 // Runs in GitHub Actions before every deploy: php tests/api_test.php
 putenv('TRENN_DATA=' . sys_get_temp_dir() . '/trenn-test-' . getmypid());
+putenv('TRENN_UPLOADS=' . sys_get_temp_dir() . '/trenn-test-uploads-' . getmypid());
 require __DIR__ . '/../api/lib.php';
 
 function check($cond, $what) {
@@ -47,5 +48,21 @@ check(oura_access_token() === null && readiness_today() === null, 'without Oura,
 fill_hr();
 check(list_sessions()[0]['hr'] === null, 'fill_hr leaves sessions alone when Oura is not connected');
 check(is_file(DATA_DIR . '/.htaccess'), 'the data folder locks itself');
+
+save_sessions([['id' => 'set-b-session', 'set' => 'b'] + $valid, ['id' => 'bad-set-session', 'set' => '../x'] + $valid]);
+$by = array_column(list_sessions(), null, 'id');
+check(($by['set-b-session']['set'] ?? null) === 'b', 'a session remembers its set');
+check(!isset($by['bad-set-session']['set']) && !isset($by['abc12345-test']['set']), 'odd or missing set names are left empty');
+
+$png = base64_decode('iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAASSURBVDhPY2AYBaNgFIwCCAAABBAAAUy7RlUAAAAASUVORK5CYII=');
+$path = store_photo($png);
+check(is_string($path) && preg_match('#^uploads/[0-9a-f]{32}\.png$#', $path) === 1, 'a real image is stored under a random name');
+check(file_get_contents(uploads_dir() . '/' . basename($path)) === $png, 'the stored file is the uploaded image');
+check(store_photo('<?php echo "hi"; ?>' . str_repeat(' ', 200)) === null, 'a script posing as an image is refused');
+check(store_photo(str_repeat("\x89PNG", 40)) === null, 'a fake image header is refused');
+check(str_contains(file_get_contents(uploads_dir() . '/.htaccess'), 'Require all denied'), 'the photo folder only serves images');
+
+kv_set('library', ['sets' => [['id' => 'main', 'name' => 'Main', 'exercises' => ['goblet-squat']]]]);
+check(kv_get('library')['sets'][0]['exercises'] === ['goblet-squat'], 'the exercise library round-trips');
 
 echo "all API tests passed\n";
