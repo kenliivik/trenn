@@ -206,7 +206,7 @@
   }
   function setName(id){
     var s = library.sets.filter(function(x){ return x.id === (id || 'main'); })[0];
-    return s ? s.name : obj(library.oldSetNames)[id] || 'Kettlebell'; // deleted sets keep their name in history
+    return s ? s.name : obj(library.oldSetNames)[id] || 'Strength'; // deleted sets keep their name in history
   }
   function setDefs(set){ return set.exercises.map(function(id){ return library.exercises[id]; }); }
   function nameOf(id){
@@ -360,7 +360,7 @@
   function renderTypes(ellipWeek){
     var rope = byId('jump-rope'), ellip = byId('elliptical');
     var types = [
-      { name:'Kettlebell', meta:activeSet().exercises.length+(activeSet().exercises.length === 1 ? ' exercise · ' : ' exercises · ')+esc(activeSet().name),
+      { name:'Strength', meta:activeSet().exercises.length+(activeSet().exercises.length === 1 ? ' exercise · ' : ' exercises · ')+esc(activeSet().name),
         side:library.sets.length > 1 ? library.sets.length+' sets' : '1 set',
         open:function(){ editing = false; showScreen('screen-library'); renderLibrary(); } },
       { name:'Jump rope', meta:timedVol(rope)+' sec', side:'Timed', open:function(){ startQueue([rope], 'screen-home', 'rope'); } },
@@ -782,7 +782,7 @@
   });
 
   // ---------- HISTORY ----------
-  var TYPE_NAME = { kb:'Kettlebell', rope:'Jump rope', ellip:'Elliptical' };
+  var TYPE_NAME = { kb:'Strength', rope:'Jump rope', ellip:'Elliptical' };
   var DAY = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
   function hrChart(samples, seconds){
     if(samples.length < 2) return '';
