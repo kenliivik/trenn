@@ -8,6 +8,12 @@ const OURA_TOKEN = 'https://api.ouraring.com/oauth/token';
 const OURA_API = 'https://api.ouraring.com/v2/usercollection/';
 const TYPES = ['kb', 'rope', 'ellip', 'outdoor'];
 const OURA_SCOPE = 'daily heartrate workout';
+// Everyday movement Oura logs as a "workout" but that isn't training: never imported.
+const SKIP_ACTIVITIES = ['walking', 'housework', 'yardwork', 'cleaning', 'gardening', 'shopping'];
+
+function skip_activity($activity) {
+    return in_array(strtolower(str_replace(' ', '_', trim((string) $activity))), SKIP_ACTIVITIES, true);
+}
 const RATINGS = ['easy', 'right', 'hard'];
 
 // api/data/config.json is written by the deploy from the GitHub "production" environment secrets.
@@ -189,7 +195,13 @@ function import_workouts() {
 }
 
 function store_workouts($rows) {
+    // Imports from before everyday movement was skipped are removed (only Oura's, never anything logged by hand).
+    foreach (q("SELECT id, items FROM sessions WHERE type = 'outdoor' AND id LIKE 'oura-%'")->fetchAll() as $r) {
+        $it = json_decode($r['items'], true)[0] ?? [];
+        if (skip_activity($it['activity'] ?? $it['name'] ?? '')) q('DELETE FROM sessions WHERE id = ?', [$r['id']]);
+    }
     foreach ($rows as $w) {
+        if (skip_activity($w['activity'] ?? '')) continue;
         $start = strtotime($w['start_datetime'] ?? '') * 1000;
         $end = strtotime($w['end_datetime'] ?? '') * 1000;
         $id = 'oura-' . substr(preg_replace('/[^A-Za-z0-9-]/', '', (string) ($w['id'] ?? '')), 0, 58);
@@ -201,6 +213,7 @@ function store_workouts($rows) {
                 'id' => 'activity',
                 'name' => ($w['label'] ?? '') ?: ucfirst(str_replace('_', ' ', (string) ($w['activity'] ?? 'Workout'))),
                 'source' => 'oura',
+                'activity' => isset($w['activity']) ? (string) $w['activity'] : null,
                 'intensity' => $w['intensity'] ?? null,
                 'distance' => isset($w['distance']) ? (int) round($w['distance']) : null,
                 'calories' => isset($w['calories']) ? (int) round($w['calories']) : null,

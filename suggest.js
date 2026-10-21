@@ -139,7 +139,23 @@
     return null;
   }
 
-  var api = { RANGE: RANGE, SINGLE: SINGLE, PAIR: PAIR, LOW_READINESS: LOW_READINESS,
+  // Time spent in each heart rate zone, by share of max heart rate: below 50% is rest, then zones 1–5 in steps of 10%.
+  // Each reading counts until the next one, at most a minute (readings come every ~20 s; longer gaps are missing data).
+  //   samples: [[seconds since start, bpm], ...] sorted   →   [{zone: 0..5, from, to, seconds}]
+  var ZONE_STARTS = [0, 0.5, 0.6, 0.7, 0.8, 0.9];
+  function hrZones(samples, maxHr) {
+    var zones = ZONE_STARTS.map(function (p, z) {
+      return { zone: z, from: Math.round(p * maxHr), to: z < 5 ? Math.round(ZONE_STARTS[z + 1] * maxHr) - 1 : null, seconds: 0 };
+    });
+    for (var i = 0; i < samples.length - 1; i++) {
+      var bpm = samples[i][1], z = 0;
+      while (z < 5 && bpm >= zones[z + 1].from) z++;
+      zones[z].seconds += Math.min(60, Math.max(0, samples[i + 1][0] - samples[i][0]));
+    }
+    return zones;
+  }
+
+  var api = { RANGE: RANGE, hrZones: hrZones, SINGLE: SINGLE, PAIR: PAIR, LOW_READINESS: LOW_READINESS,
               normReps: normReps, scaleFor: scaleFor, timeLimits: timeLimits, current: current, step: step, suggest: suggest };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.TrennSuggest = api;

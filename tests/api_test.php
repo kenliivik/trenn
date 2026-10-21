@@ -80,7 +80,7 @@ $ski = ['id' => 'ski-1', 'activity' => 'downhill_skiing', 'label' => 'Ski day', 
 store_workouts([$ride, $dupe, $ski, ['id' => 'broken', 'activity' => 'x']]);
 $by = array_column(list_sessions(), null, 'id');
 check(isset($by['oura-9a8b-7c6d']) && $by['oura-9a8b-7c6d']['type'] === 'outdoor', 'an Oura workout becomes an outdoor session');
-check($by['oura-9a8b-7c6d']['items'][0] === ['id' => 'activity', 'name' => 'Cycling', 'source' => 'oura', 'intensity' => 'hard', 'distance' => 23457, 'calories' => 612],
+check($by['oura-9a8b-7c6d']['items'][0] === ['id' => 'activity', 'name' => 'Cycling', 'source' => 'oura', 'activity' => 'cycling', 'intensity' => 'hard', 'distance' => 23457, 'calories' => 612],
     'activity name, intensity, distance and calories are kept');
 check($by['oura-9a8b-7c6d']['ended_at'] - $by['oura-9a8b-7c6d']['started_at'] === 2 * 3600000, 'its exact start and end are kept');
 check(!isset($by['oura-dupe-1']), 'a workout overlapping a session logged in trenn is skipped');
@@ -90,6 +90,20 @@ save_sessions([['id' => 'oura-9a8b-7c6d', 'type' => 'outdoor', 'started_at' => $
     'ended_at' => $by['oura-9a8b-7c6d']['ended_at'], 'rating' => 'easy', 'items' => $by['oura-9a8b-7c6d']['items']]]);
 store_workouts([$ride]);
 check(array_column(list_sessions(), null, 'id')['oura-9a8b-7c6d']['rating'] === 'easy', 'importing again keeps the rating given in the app');
+
+// Everyday movement stays out; older imports of it are cleaned up; a walk logged by hand stays.
+save_sessions([['id' => 'oura-old-walk', 'type' => 'outdoor', 'started_at' => $t0 - 50 * 3600000, 'ended_at' => $t0 - 49 * 3600000,
+    'items' => [['id' => 'activity', 'name' => 'Walking', 'source' => 'oura']]],
+    ['id' => 'manual-walk-1', 'type' => 'outdoor', 'started_at' => $t0 - 60 * 3600000, 'ended_at' => $t0 - 59 * 3600000,
+    'items' => [['id' => 'activity', 'name' => 'Walking', 'source' => 'manual']]]]);
+store_workouts([
+    ['id' => 'walk-2', 'activity' => 'walking', 'label' => 'Evening stroll', 'start_datetime' => $iso($t0 - 40 * 3600000), 'end_datetime' => $iso($t0 - 39 * 3600000)],
+    ['id' => 'yard-1', 'activity' => 'yardwork', 'start_datetime' => $iso($t0 - 45 * 3600000), 'end_datetime' => $iso($t0 - 44 * 3600000)],
+]);
+$by = array_column(list_sessions(), null, 'id');
+check(!isset($by['oura-walk-2']) && !isset($by['oura-yard-1']), 'walking and yardwork from Oura are not imported, even with a label');
+check(!isset($by['oura-old-walk']), 'walks imported before the filter are removed');
+check(isset($by['manual-walk-1']) && isset($by['oura-9a8b-7c6d']), 'a walk logged by hand and other imports stay');
 
 $many = [];
 for ($i = 0; $i < 2000; $i++) $many[] = ['timestamp' => gmdate('Y-m-d\TH:i:s', intdiv($start, 1000) + $i * 19) . '+00:00', 'bpm' => 100 + $i % 50];

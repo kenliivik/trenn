@@ -288,6 +288,7 @@
     if(open === 'screen-home') renderTop();
     if(open === 'screen-library') renderLibrary();
     if(open === 'screen-history') renderHistory();
+    if(open === 'screen-detail' && document.activeElement !== $('maxHrIn')) renderDetail(); // heart rate may have just arrived
     if(open === 'screen-session' && current && current.type !== 'kb' && !timerStarted) renderSuggest(timedGroup(current.type), 'suggestSolo');
   }
   window.addEventListener('online', sync);
@@ -347,9 +348,11 @@
       d.setDate(d.getDate()-i);
       ellipWeek += ellip[dateKey(d)] || 0;
       var done = set.has(dateKey(d));
-      var el = document.createElement('div');
+      var el = document.createElement('button');
       el.className = 'day-dot' + (done ? ' done' : '') + (i === 0 ? ' today' : '');
       el.innerHTML = '<b>'+labels[d.getDay()]+'</b><span>'+d.getDate()+'</span>';
+      el.setAttribute('aria-label', 'History of '+dateKey(d));
+      (function(k){ el.addEventListener('click', function(){ openDay(k); }); })(dateKey(d));
       dotsRow.appendChild(el);
     }
     document.getElementById('ellipWeek').textContent = ellipWeek ? 'Ellip '+ellipWeek+' min' : '';
@@ -383,7 +386,7 @@
 
   // ---------- OUTDOOR ----------
   // Rollerblading, cycling, skiing...: Oura imports what it detects (server side); this screen logs what it missed.
-  var OUT_KINDS = ['Rollerblading', 'Cycling', 'Skiing', 'Running', 'Walking', 'Hiking', 'Swimming', 'Other'];
+  var OUT_KINDS = ['Rollerblading', 'Cycling', 'Skiing', 'Running', 'Hiking', 'Swimming', 'Other'];
   var outForm = null;
   function outdoorName(s){ return ((s.items || [])[0] || {}).name || 'Outdoor'; }
   function lastOutdoorText(){
@@ -885,26 +888,126 @@
         .catch(function(){ flash = 'Could not reach the server.'; renderHistory(); });
     });
 
-    var list = sessions.slice().reverse().slice(0, 100);
-    // Each day starts with Oura's scores for it; today is always shown, trained or not.
     var html = '', shownDay = null;
-    list.forEach(function(s){
-      var k = dateKey(new Date(s.started_at));
-      if(!shownDay && k !== today()) html += dayHeader(today());
-      if(k !== shownDay){ html += dayHeader(k); shownDay = k; }
-      html += histRow(s);
-    });
-    if(!list.length) html = dayHeader(today()) + '<p class="hist-empty micro">No sessions yet. Finish a workout and it shows up here.</p>';
+    if(histDay){
+      // One day, opened from the 7-day strip on the home screen.
+      var those = sessions.filter(function(s){ return dateKey(new Date(s.started_at)) === histDay; }).reverse();
+      html = '<div class="hist-filter micro"><span>One day</span><button id="histAll">Show all &gt;&gt;&gt;</button></div>' +
+        dayHeader(histDay) + (those.length ? those.map(histRow).join('') : '<p class="hist-empty micro">Nothing logged this day.</p>');
+    } else {
+      var list = sessions.slice().reverse().slice(0, 100);
+      // Each day starts with Oura's scores for it; today is always shown, trained or not.
+      list.forEach(function(s){
+        var k = dateKey(new Date(s.started_at));
+        if(!shownDay && k !== today()) html += dayHeader(today());
+        if(k !== shownDay){ html += dayHeader(k); shownDay = k; }
+        html += histRow(s);
+      });
+      if(!list.length) html = dayHeader(today()) + '<p class="hist-empty micro">No sessions yet. Finish a workout and it shows up here.</p>';
+    }
     $('histList').innerHTML = html;
+    if($('histAll')) $('histAll').addEventListener('click', function(){ histDay = null; renderHistory(); });
     $('histList').querySelectorAll('.rate-btns.mini button').forEach(function(b){
-      b.addEventListener('click', function(){
-        var id = b.parentNode.dataset.id, s = sessions.filter(function(x){ return x.id === id; })[0];
+      b.addEventListener('click', function(e){
+        e.stopPropagation(); // rating, not opening the session
+        var s = sessionById(b.parentNode.dataset.id);
         if(!s) return;
         s.rating = b.dataset.r; s._dirty = Date.now();
         saveLog(); sync(); renderHistory();
       });
     });
+    $('histList').querySelectorAll('.hist-row').forEach(function(row){
+      row.addEventListener('click', function(){ openSession(row.dataset.id); });
+      row.addEventListener('keydown', function(e){ if(e.target === row && (e.key === 'Enter' || e.key === ' ')){ e.preventDefault(); openSession(row.dataset.id); } });
+    });
   }
+  var histDay = null; // a day picked on the home screen, or null for everything
+  function openHistory(day){
+    histDay = day || null; flash = '';
+    showScreen('screen-history'); renderHistory(); sync();
+  }
+  function sessionById(id){ return sessions.filter(function(x){ return x.id === id; })[0]; }
+  // A day tapped on the home screen: its workout straight away. A rest day (or the rare two-workout day) shows the day instead.
+  function openDay(k){
+    var those = sessions.filter(function(s){ return dateKey(new Date(s.started_at)) === k; });
+    if(those.length === 1){ openSession(those[0].id, 'screen-home'); return; }
+    openHistory(k);
+  }
+
+  // ---------- SESSION DETAIL ----------
+  var detailId = null, detailFrom = 'screen-history';
+  var ZONE_NAMES = ['Rest', 'Zone 1', 'Zone 2', 'Zone 3', 'Zone 4', 'Zone 5'];
+  function openSession(id, from){
+    detailId = id; detailFrom = from || 'screen-history';
+    $('detailBack').textContent = detailFrom === 'screen-home' ? '< Home' : '< History';
+    renderDetail(); showScreen('screen-detail'); scrollTo(0, 0);
+  }
+  function sessionTitle(s){ return s.type === 'kb' ? setName(s.set) : s.type === 'outdoor' ? outdoorName(s) : TYPE_NAME[s.type]; }
+  function mmss(sec){ var m = Math.floor(sec / 60); return m >= 60 ? Math.floor(m / 60)+' h '+pad2(m % 60) : m+':'+pad2(Math.round(sec % 60)); }
+  function renderDetail(){
+    var s = sessionById(detailId);
+    if(!s){ showScreen('screen-history'); renderHistory(); return; }
+    var d = new Date(s.started_at), e = new Date(s.ended_at), secs = Math.round((s.ended_at - s.started_at) / 1000);
+    $('detailWhen').textContent = DAY[d.getDay()]+' '+pad2(d.getDate())+'.'+pad2(d.getMonth()+1);
+    $('detailTitle').textContent = sessionTitle(s);
+
+    var items = s.items || [], it0 = items[0] || {}, rows = [];
+    rows.push(['Time', d.toTimeString().slice(0, 5)+'–'+e.toTimeString().slice(0, 5)+' · '+mmss(secs)]);
+    if(s.type === 'kb') items.forEach(function(it){ rows.push([it.name || nameOf(it.id), it.target || (it.seconds ? mmss(it.seconds) : '')]); });
+    else if(s.type === 'outdoor'){
+      if(it0.distance) rows.push(['Distance', (it0.distance / 1000).toFixed(1)+' km']);
+      if(it0.distance && secs) rows.push(['Average speed', (it0.distance / secs * 3.6).toFixed(1)+' km/h']);
+      if(it0.calories) rows.push(['Calories', it0.calories+' kcal']);
+      rows.push(['Source', it0.source === 'oura' ? 'Oura'+(it0.intensity ? ' · '+it0.intensity+' intensity' : '') : 'Logged in trenn']);
+    } else if(it0.seconds) rows.push(['On the timer', mmss(it0.seconds)+(it0.planned && it0.planned !== it0.seconds ? ' of '+mmss(it0.planned) : '')]);
+
+    var html = '<div class="dt-sec"><ul class="dt-items">'+rows.map(function(r){ return '<li><span class="micro">'+esc(r[0])+'</span><b>'+esc(r[1])+'</b></li>'; }).join('')+'</ul></div>';
+    html += '<div class="dt-sec"><span class="micro">How did it feel?</span><div class="rate-btns" id="dtRate">'+
+      ['easy','right','hard'].map(function(r){ return '<button data-r="'+r+'" aria-pressed="'+(s.rating === r)+'">'+r+'</button>'; }).join('')+'</div></div>';
+
+    if(!s.hr) html += '<div class="dt-sec micro">Heart rate: waiting for Oura (it arrives after the Oura app syncs).</div>';
+    else if(!s.hr.samples.length) html += '<div class="dt-sec micro">No heart rate from Oura for this session.</div>';
+    else {
+      var maxHr = library.maxHr || 190, zones = S.hrZones(s.hr.samples, maxHr);
+      var total = zones.reduce(function(a, z){ return a + z.seconds; }, 0) || 1;
+      html += '<div class="stat-row">'+[['Avg', s.hr.avg], ['Max', s.hr.max], ['Min', s.hr.min]].map(function(x){
+        return '<div class="stat-box"><div class="n">'+x[1]+'</div><div class="l micro">'+x[0]+' bpm</div></div>'; }).join('')+'</div>';
+      html += '<div class="dt-sec">'+detailChart(s.hr.samples, secs, zones)+'<span class="micro">'+s.hr.samples.length+' readings from Oura</span></div>';
+      html += '<div class="dt-sec"><h3 class="micro">Time in heart rate zones</h3>'+zones.slice().reverse().map(function(z){
+        var pct = Math.round(z.seconds / total * 100);
+        return '<div class="zone-row'+(z.zone >= 4 ? ' hot' : '')+'"><span class="micro">'+ZONE_NAMES[z.zone]+'<br>'+(z.to ? z.from+'–'+z.to : z.from+'+')+'</span>'+
+          '<span class="bar"><i style="width:'+pct+'%"></i></span><span class="min">'+mmss(z.seconds)+'</span></div>';
+      }).join('')+
+      '<label class="maxhr micro">Max heart rate<input id="maxHrIn" type="number" inputmode="numeric" min="120" max="230" value="'+maxHr+'"> bpm</label>'+
+      '<p class="micro" style="color:var(--mute);margin:6px 0 0;">'+(library.maxHr ? 'Zones are shares of this.' : 'Estimated. 220 minus your age is a common start; your highest ever reading is better.')+'</p></div>';
+    }
+    $('detailBody').innerHTML = html;
+
+    $('detailBody').querySelectorAll('#dtRate button').forEach(function(b){
+      b.addEventListener('click', function(){ s.rating = b.dataset.r; s._dirty = Date.now(); saveLog(); sync(); renderDetail(); });
+    });
+    var mh = $('maxHrIn');
+    if(mh) mh.addEventListener('change', function(){
+      var v = Math.round(Number(mh.value));
+      if(v >= 120 && v <= 230){ library.maxHr = v; saveLibrary(); renderDetail(); }
+    });
+  }
+  // Heart rate over the session, with the zone borders that fall inside its range.
+  function detailChart(samples, seconds, zones){
+    var bpm = samples.map(function(s){ return s[1]; }), lo = Math.min.apply(null, bpm) - 8, hi = Math.max.apply(null, bpm) + 8;
+    var W = 300, H = 120, y = function(v){ return (H - (v - lo) / (hi - lo) * (H - 8) - 4).toFixed(1); };
+    var lines = zones.filter(function(z){ return z.zone > 0 && z.from > lo && z.from < hi; }).map(function(z){
+      return '<line x1="0" x2="'+W+'" y1="'+y(z.from)+'" y2="'+y(z.from)+'" stroke="#0B0B0B" stroke-opacity=".25" stroke-dasharray="3 3" vector-effect="non-scaling-stroke"/>'+
+        '<text x="'+(W - 2)+'" y="'+(y(z.from) - 2)+'" text-anchor="end">Z'+z.zone+'</text>';
+    }).join('');
+    var pts = samples.map(function(s){ return (s[0] / Math.max(1, seconds) * W).toFixed(1)+','+y(s[1]); }).join(' ');
+    return '<svg class="dt-chart" viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="none" aria-label="Heart rate during the session">'+lines+
+      '<polyline points="'+pts+'" fill="none" stroke="#E61919" stroke-width="2" vector-effect="non-scaling-stroke"/></svg>';
+  }
+  $('detailBack').addEventListener('click', function(){
+    showScreen(detailFrom);
+    if(detailFrom === 'screen-home'){ renderTop(); } else renderHistory();
+  });
   function dayHeader(k){
     var info = obj(meta.days)[k] || {}, d = new Date(k+'T12:00:00');
     var parts = [];
@@ -928,7 +1031,7 @@
       var hr = !s.hr ? '<span class="micro">Heart rate: waiting for Oura</span>'
         : !s.hr.samples.length ? '<span class="micro">No heart rate from Oura</span>'
         : '<span class="micro">Avg</span><b>'+s.hr.avg+'</b><span class="micro">Max</span><b>'+s.hr.max+'</b><span class="micro">bpm · '+s.hr.samples.length+(s.hr.samples.length === 1 ? ' reading' : ' readings')+'</span>';
-      return '<div class="hist-row">'+
+      return '<div class="hist-row" role="button" tabindex="0" data-id="'+esc(s.id)+'">'+
         '<span class="when micro">'+DAY[d.getDay()]+' '+pad2(d.getDate())+'.'+pad2(d.getMonth()+1)+' · '+d.toTimeString().slice(0, 5)+' · '+Math.max(1, Math.round(secs / 60))+' min</span>'+
         '<span class="what">'+esc(s.type === 'kb' ? setName(s.set) : s.type === 'outdoor' ? outdoorName(s) : TYPE_NAME[s.type])+'</span>'+
         (s.rating ? '<span class="rated micro '+s.rating+'">'+s.rating+'</span>' : '<span></span>')+
@@ -938,7 +1041,7 @@
         (s.hr ? hrChart(s.hr.samples, secs) : '')+
       '</div>';
   }
-  $('historyBtn').addEventListener('click', function(){ showScreen('screen-history'); renderHistory(); sync(); });
+  $('historyBtn').addEventListener('click', function(){ openHistory(null); });
   $('histHomeBtn').addEventListener('click', function(){ flash = ''; showScreen('screen-home'); renderTop(); });
 
   // ---------- HOME HEADLINE ----------

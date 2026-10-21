@@ -174,4 +174,16 @@ t('a normal or lower temperature does not', () => {
   assert.equal(S.suggest(KB, [], {}, { readiness: 85, temp: null }, {}, 'd'), null);
 });
 
+t('heart rate zones are shares of max heart rate', () => {
+  const z = S.hrZones([], 200);
+  assert.deepEqual(z.map(x => [x.from, x.to]), [[0, 99], [100, 119], [120, 139], [140, 159], [160, 179], [180, null]]);
+});
+
+t('time in zones counts each reading until the next, gaps capped at a minute', () => {
+  // 0-20 s at 110 (zone 1), 20-40 at 150 (zone 3), 40-340 at 185 but a 300 s gap counts 60, last reading counts nothing
+  const z = S.hrZones([[0, 110], [20, 150], [40, 185], [340, 90]], 200);
+  assert.deepEqual(z.map(x => x.seconds), [0, 20, 0, 20, 0, 60]);
+  assert.equal(S.hrZones([[0, 120]], 200).reduce((a, x) => a + x.seconds, 0), 0);
+});
+
 console.log(`all ${n} app tests passed`);
