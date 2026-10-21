@@ -161,4 +161,17 @@ t('declining the outdoor suggestion lets the normal rules speak', () => {
   assert.equal(S.suggest(KB, list, {}, 80, { [light.key]: 1 }, 'd', NOW).kind, 'up');
 });
 
+t('raised body temperature suggests a lighter day, before anything else', () => {
+  const s = S.suggest(KB, [kb('a', 1, 'easy'), kb('b', 2, 'easy')], {}, { readiness: 85, temp: 0.62 }, {}, 'd');
+  assert.equal(s.kind, 'light');
+  assert.equal(s.temporary, true);
+  assert.match(s.text, /up 0\.6 °C/);
+});
+
+t('a normal or lower temperature does not', () => {
+  assert.equal(S.suggest(KB, [kb('a', 1, 'easy'), kb('b', 2, 'easy')], {}, { readiness: 85, temp: 0.3 }, {}, 'd').kind, 'up');
+  assert.equal(S.suggest(KB, [kb('a', 1, 'easy'), kb('b', 2, 'easy')], {}, { readiness: 85, temp: -0.8 }, {}, 'd').kind, 'up');
+  assert.equal(S.suggest(KB, [], {}, { readiness: 85, temp: null }, {}, 'd'), null);
+});
+
 console.log(`all ${n} app tests passed`);

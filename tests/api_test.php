@@ -44,7 +44,15 @@ check(kv_get('targets') === ['goblet-squat' => 1], 'targets round-trip');
 kv_set('targets', null);
 check(kv_get('targets') === null, 'kv delete');
 
-check(oura_access_token() === null && readiness_today() === null, 'without Oura, heart rate and readiness stay empty');
+check(oura_access_token() === null && daily_scores() === [], 'without Oura, heart rate and day scores stay empty');
+$days = merge_daily(
+    [['day' => '2026-10-21', 'score' => 81, 'temperature_deviation' => 0.6123], ['day' => '2026-10-20', 'score' => 90, 'temperature_deviation' => null], ['score' => 5]],
+    [['day' => '2026-10-21', 'score' => 79], ['day' => '2026-10-19', 'score' => 70]]);
+check($days === [
+    '2026-10-19' => ['sleep' => 70],
+    '2026-10-20' => ['readiness' => 90, 'temp' => null],
+    '2026-10-21' => ['readiness' => 81, 'temp' => 0.61, 'sleep' => 79],
+], 'readiness, temperature and sleep are merged per day, oldest first');
 fill_hr();
 check(list_sessions()[0]['hr'] === null, 'fill_hr leaves sessions alone when Oura is not connected');
 check(is_file(DATA_DIR . '/.htaccess'), 'the data folder locks itself');

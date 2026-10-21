@@ -13,12 +13,14 @@ import_workouts();
 fill_hr();
 
 $oura = kv_get('oura');
+$days = daily_scores();
 reply([
     'sessions' => list_sessions(),
     'targets' => kv_get('targets') ?? (object) [],
     'declined' => kv_get('declined') ?? (object) [],
     'library' => kv_get('library'),
-    'readiness' => readiness_today(),
+    'readiness' => $days[date('Y-m-d')]['readiness'] ?? null,
+    'days' => (object) $days,
     'oura' => $oura !== null,
     'oura_workouts' => $oura !== null && str_contains($oura['scope'] ?? '', 'workout'),
 ]);

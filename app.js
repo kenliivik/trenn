@@ -275,7 +275,7 @@
           if(lib) library = meta.library = lib;
           else { meta.dirty = Date.now(); syncAgain = true; } // the server has no library yet: send this one
         }
-        meta.readiness = d.readiness; meta.readinessDay = today();
+        meta.readiness = d.readiness; meta.readinessDay = today(); meta.days = obj(d.days);
         meta.oura = d.oura; meta.ouraWorkouts = d.oura_workouts; meta.syncedAt = Date.now(); meta.syncError = '';
         saveLog(); applyTargets(); refresh();
       })
@@ -296,8 +296,8 @@
   // ---------- SUGGESTIONS ----------
   function renderSuggest(group, boxId){
     var box = $(boxId), day = today();
-    var readiness = meta.readinessDay === day ? meta.readiness : null;
-    var s = lightToday && lightToday.day === day ? null : S.suggest(group, sessions, meta.targets, readiness, meta.declined, day);
+    var scores = { readiness: meta.readinessDay === day ? meta.readiness : null, temp: (obj(meta.days)[day] || {}).temp };
+    var s = lightToday && lightToday.day === day ? null : S.suggest(group, sessions, meta.targets, scores, meta.declined, day);
     if(!s){ box.style.display = 'none'; box.innerHTML = ''; return; }
     box.style.display = '';
     box.innerHTML = '<div class="micro red">/// Suggestion</div><p>'+s.text+'</p><ul>'+
@@ -886,7 +886,35 @@
     });
 
     var list = sessions.slice().reverse().slice(0, 100);
-    $('histList').innerHTML = list.length ? list.map(function(s){
+    // Each day starts with Oura's scores for it; today is always shown, trained or not.
+    var html = '', shownDay = null;
+    list.forEach(function(s){
+      var k = dateKey(new Date(s.started_at));
+      if(!shownDay && k !== today()) html += dayHeader(today());
+      if(k !== shownDay){ html += dayHeader(k); shownDay = k; }
+      html += histRow(s);
+    });
+    if(!list.length) html = dayHeader(today()) + '<p class="hist-empty micro">No sessions yet. Finish a workout and it shows up here.</p>';
+    $('histList').innerHTML = html;
+    $('histList').querySelectorAll('.rate-btns.mini button').forEach(function(b){
+      b.addEventListener('click', function(){
+        var id = b.parentNode.dataset.id, s = sessions.filter(function(x){ return x.id === id; })[0];
+        if(!s) return;
+        s.rating = b.dataset.r; s._dirty = Date.now();
+        saveLog(); sync(); renderHistory();
+      });
+    });
+  }
+  function dayHeader(k){
+    var info = obj(meta.days)[k] || {}, d = new Date(k+'T12:00:00');
+    var parts = [];
+    if(info.readiness != null) parts.push('Readiness <b>'+info.readiness+'</b>');
+    if(info.sleep != null) parts.push('Sleep <b>'+info.sleep+'</b>');
+    if(typeof info.temp === 'number') parts.push('<span class="'+(info.temp >= 0.5 ? 'warm' : '')+'">Temp <b>'+(info.temp > 0 ? '+' : '')+info.temp.toFixed(1)+'°</b></span>');
+    return '<div class="hist-day micro"><span>'+(k === today() ? 'Today' : DAY[d.getDay()]+' '+pad2(d.getDate())+'.'+pad2(d.getMonth()+1))+'</span>'+
+      '<span class="scores">'+parts.join(' · ')+'</span></div>';
+  }
+  function histRow(s){
       var d = new Date(s.started_at), secs = Math.round((s.ended_at - s.started_at) / 1000);
       var items = s.items || [];
       var it0 = items[0] || {};
@@ -909,15 +937,6 @@
         '<span class="hr">'+hr+'</span>'+
         (s.hr ? hrChart(s.hr.samples, secs) : '')+
       '</div>';
-    }).join('') : '<p class="hist-empty micro">No sessions yet. Finish a workout and it shows up here.</p>';
-    $('histList').querySelectorAll('.rate-btns.mini button').forEach(function(b){
-      b.addEventListener('click', function(){
-        var id = b.parentNode.dataset.id, s = sessions.filter(function(x){ return x.id === id; })[0];
-        if(!s) return;
-        s.rating = b.dataset.r; s._dirty = Date.now();
-        saveLog(); sync(); renderHistory();
-      });
-    });
   }
   $('historyBtn').addEventListener('click', function(){ showScreen('screen-history'); renderHistory(); sync(); });
   $('histHomeBtn').addEventListener('click', function(){ flash = ''; showScreen('screen-home'); renderTop(); });

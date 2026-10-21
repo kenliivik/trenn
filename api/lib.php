@@ -209,17 +209,34 @@ function store_workouts($rows) {
     }
 }
 
-// Today's readiness score, asked from Oura at most every 30 minutes until it exists.
-function readiness_today() {
+// Oura's day scores of the last two weeks: {'2026-10-21': {readiness, sleep, temp}}. temp is the body temperature
+// change from your normal in °C (part of readiness). Asked at most every 30 minutes, or sooner while today has no readiness yet.
+function daily_scores() {
+    $c = kv_get('daily');
     $today = date('Y-m-d');
-    $c = kv_get('readiness');
-    if ($c && $c['day'] === $today && ($c['score'] !== null || $c['checked'] > time() - 1800)) return $c['score'];
-    $rows = oura_get_all('daily_readiness', ['start_date' => $today, 'end_date' => date('Y-m-d', strtotime('+1 day'))]);
-    if ($rows === null) return $c && $c['day'] === $today ? $c['score'] : null;
-    $score = null;
-    foreach ($rows as $r) if (($r['day'] ?? '') === $today) $score = $r['score'] ?? null;
-    kv_set('readiness', ['day' => $today, 'score' => $score, 'checked' => time()]);
-    return $score;
+    $fresh = $c && $c['checked'] > time() - 1800;
+    $todayDone = $c && isset($c['days'][$today]['readiness']);
+    if ($c && ($fresh || ($todayDone && $c['checked'] > time() - 3 * 3600))) return $c['days'];
+    $range = ['start_date' => date('Y-m-d', strtotime('-14 days')), 'end_date' => date('Y-m-d', strtotime('+1 day'))];
+    $readiness = oura_get_all('daily_readiness', $range);
+    $sleep = $readiness === null ? null : oura_get_all('daily_sleep', $range);
+    if ($readiness === null || $sleep === null) return $c['days'] ?? [];
+    $days = merge_daily($readiness, $sleep);
+    kv_set('daily', ['days' => $days, 'checked' => time()]);
+    return $days;
+}
+
+function merge_daily($readiness, $sleep) {
+    $days = [];
+    foreach ($readiness as $r) {
+        if (!isset($r['day'])) continue;
+        $days[$r['day']]['readiness'] = $r['score'] ?? null;
+        $t = $r['temperature_deviation'] ?? null;
+        $days[$r['day']]['temp'] = is_numeric($t) ? round($t, 2) : null;
+    }
+    foreach ($sleep as $s) if (isset($s['day'])) $days[$s['day']]['sleep'] = $s['score'] ?? null;
+    ksort($days);
+    return $days;
 }
 
 // ---------- photos ----------

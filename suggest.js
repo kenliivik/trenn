@@ -10,6 +10,7 @@
   var SINGLE = ['2', '3', '4', '5', '6', '8', '10', '12', '15', '20', '25', '30'];
   var PAIR = SINGLE.map(function (n) { return n + ' + ' + n; });
   var LOW_READINESS = 65;
+  var HIGH_TEMP = 0.5; // °C above your normal (Oura): often the first sign of a cold
   var HR_DROP = 5; // bpm lower at the same elliptical time = fitter
   // Targets used to be ladder positions; these turn an old number back into reps.
   var OLD_LADDERS = {
@@ -75,10 +76,13 @@
   // One suggestion for a workout group, or null. A group is a kettlebell set or a timed tile:
   //   {key:'kb:main', type:'kb', set:'main', exercises:[...]}   {key:'ellip', type:'ellip', exercises:[elliptical]}
   // Evidence only counts after the group's last target change, and a declined suggestion is not shown again.
-  //   sessions: [{id, type, set, started_at, rating, items:[{id, seconds}], hr:{avg}}]   readiness: today's score or null
-  function suggest(group, sessions, targets, readiness, declined, today, now) {
+  //   sessions: [{id, type, set, started_at, rating, items:[{id, seconds}], hr:{avg}}]
+  //   day: today's Oura scores {readiness, temp} (a bare readiness number also works), or null
+  function suggest(group, sessions, targets, day, declined, today, now) {
     declined = declined || {};
     now = now || Date.now();
+    day = day && typeof day === 'object' ? day : { readiness: day };
+    var readiness = day.readiness, temp = day.temp;
     var since = (targets && targets.changedAt && targets.changedAt[group.key]) || 0;
     var mine = sessions.filter(function (s) {
       return s.type === group.type && (group.type !== 'kb' || (s.set || 'main') === group.set) && s.started_at > since;
@@ -87,6 +91,11 @@
     var last = rated[rated.length - 1], prev = rated[rated.length - 2];
     var pick = function (s) { return s && !declined[s.key] && s.changes.length ? s : null; };
 
+    if (typeof temp === 'number' && temp >= HIGH_TEMP) {
+      return pick({ key: 'temp-' + group.key + '-' + today, kind: 'light', temporary: true,
+        text: 'Body temperature is up ' + temp.toFixed(1) + ' °C. Could be a cold coming: go one step lighter today?',
+        changes: step(group.exercises, targets, -1) });
+    }
     if (readiness !== null && readiness !== undefined && readiness < LOW_READINESS) {
       return pick({ key: 'light-' + group.key + '-' + today, kind: 'light', temporary: true,
         text: 'Readiness ' + readiness + ' today. Go one step lighter?', changes: step(group.exercises, targets, -1) });
