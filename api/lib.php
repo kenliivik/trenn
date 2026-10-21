@@ -6,7 +6,8 @@ define('DATA_DIR', getenv('TRENN_DATA') ?: __DIR__ . '/data');
 const OURA_AUTHORIZE = 'https://cloud.ouraring.com/oauth/authorize';
 const OURA_TOKEN = 'https://api.ouraring.com/oauth/token';
 const OURA_API = 'https://api.ouraring.com/v2/usercollection/';
-const TYPES = ['kb', 'rope', 'ellip'];
+const TYPES = ['kb', 'rope', 'ellip', 'outdoor'];
+const OURA_SCOPE = 'daily heartrate workout';
 const RATINGS = ['easy', 'right', 'hard'];
 
 // api/data/config.json is written by the deploy from the GitHub "production" environment secrets.
@@ -101,7 +102,8 @@ function app_url() {
 // ---------- sessions ----------
 
 // Validates and stores sessions sent by the app. The app owns everything except heart rate, which only the server fills.
-function save_sessions($list) {
+// $new_only: add sessions that don't exist yet and leave existing ones alone (Oura imports must not undo a rating).
+function save_sessions($list, $new_only = false) {
     $saved = 0;
     foreach (array_slice(is_array($list) ? $list : [], 0, 500) as $s) {
         if (!is_array($s)) continue;
@@ -110,11 +112,12 @@ function save_sessions($list) {
         if (!is_string($id) || !preg_match('/^[A-Za-z0-9-]{8,64}$/', $id)) continue;
         if (!in_array($s['type'] ?? '', TYPES, true)) continue;
         if (!is_int($s['started_at'] ?? null) || !is_int($s['ended_at'] ?? null) || $s['ended_at'] < $s['started_at']) continue;
-        if ($s['ended_at'] - $s['started_at'] > 6 * 3600 * 1000 || strlen($items) > 20000) continue;
+        if ($s['ended_at'] - $s['started_at'] > 12 * 3600 * 1000 || strlen($items) > 20000) continue; // a ski day can be long
         $rating = in_array($s['rating'] ?? null, RATINGS, true) ? $s['rating'] : null;
         $set = is_string($s['set'] ?? null) && preg_match('/^[A-Za-z0-9-]{1,40}$/', $s['set']) ? $s['set'] : null;
-        q('INSERT INTO sessions (id, type, set_id, started_at, ended_at, rating, items, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-           ON CONFLICT(id) DO UPDATE SET rating = excluded.rating, items = excluded.items, ended_at = excluded.ended_at, updated_at = excluded.updated_at',
+        q('INSERT INTO sessions (id, type, set_id, started_at, ended_at, rating, items, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) '
+          . ($new_only ? 'ON CONFLICT(id) DO NOTHING'
+             : 'ON CONFLICT(id) DO UPDATE SET rating = excluded.rating, items = excluded.items, ended_at = excluded.ended_at, updated_at = excluded.updated_at'),
             [$id, $s['type'], $set, $s['started_at'], $s['ended_at'], $rating, $items, now_ms()]);
         $saved++;
     }
@@ -144,7 +147,13 @@ function hr_summary($rows, $start_ms, $end_ms) {
     usort($samples, fn($a, $b) => $a[0] <=> $b[0]);
     if (!$samples) return ['samples' => []];
     $bpm = array_column($samples, 1);
-    return ['samples' => $samples, 'avg' => (int) round(array_sum($bpm) / count($bpm)), 'max' => max($bpm), 'min' => min($bpm)];
+    $sum = ['avg' => (int) round(array_sum($bpm) / count($bpm)), 'max' => max($bpm), 'min' => min($bpm)];
+    // Long outdoor days have thousands of readings: keep the numbers exact but the curve to 400 points.
+    if (count($samples) > 400) {
+        $every = count($samples) / 400;
+        $samples = array_map(fn($i) => $samples[(int) floor($i * $every)], range(0, 399));
+    }
+    return ['samples' => $samples] + $sum;
 }
 
 // Fills heart rate for recently finished sessions. The ring only reaches Oura when the phone syncs, so empty answers are retried
@@ -163,6 +172,40 @@ function fill_hr($limit = 3) {
         $give_up = $s['ended_at'] < $now - 48 * 3600 * 1000;
         q('UPDATE sessions SET hr = ?, hr_checked_at = ? WHERE id = ?',
             [$hr['samples'] || $give_up ? json_encode($hr) : null, $now, $s['id']]);
+    }
+}
+
+// Oura workouts (detected by the ring or started in the Oura app) of the last week become outdoor sessions, so a bike ride
+// or ski day shows up without logging it. Skipped when it overlaps something already logged in trenn (the elliptical, say).
+// Asked at most every 30 minutes; heart rate is then filled like for any session.
+function import_workouts() {
+    $t = kv_get('oura');
+    if (!$t || !str_contains($t['scope'] ?? '', 'workout')) return;
+    if ((kv_get('workouts_checked') ?? 0) > time() - 1800) return;
+    $rows = oura_get_all('workout', ['start_date' => date('Y-m-d', strtotime('-7 days')), 'end_date' => date('Y-m-d', strtotime('+1 day'))]);
+    if ($rows === null) return;
+    kv_set('workouts_checked', time());
+    store_workouts($rows);
+}
+
+function store_workouts($rows) {
+    foreach ($rows as $w) {
+        $start = strtotime($w['start_datetime'] ?? '') * 1000;
+        $end = strtotime($w['end_datetime'] ?? '') * 1000;
+        $id = 'oura-' . substr(preg_replace('/[^A-Za-z0-9-]/', '', (string) ($w['id'] ?? '')), 0, 58);
+        if (!$start || $end <= $start || $id === 'oura-') continue;
+        if (q('SELECT 1 FROM sessions WHERE type != ? AND started_at < ? AND ended_at > ?', ['outdoor', $end, $start])->fetchColumn()) continue;
+        save_sessions([[
+            'id' => $id, 'type' => 'outdoor', 'started_at' => $start, 'ended_at' => $end, 'rating' => null,
+            'items' => [array_filter([
+                'id' => 'activity',
+                'name' => ($w['label'] ?? '') ?: ucfirst(str_replace('_', ' ', (string) ($w['activity'] ?? 'Workout'))),
+                'source' => 'oura',
+                'intensity' => $w['intensity'] ?? null,
+                'distance' => isset($w['distance']) ? (int) round($w['distance']) : null,
+                'calories' => isset($w['calories']) ? (int) round($w['calories']) : null,
+            ], fn($v) => $v !== null)],
+        ]], true);
     }
 }
 
@@ -216,7 +259,9 @@ function http_json($method, $url, $headers = [], $body = null) {
 }
 
 // Exchanges a login code or a refresh token. Oura refresh tokens work once, so the new pair is saved straight away.
-function oura_token_request($params) {
+// The granted permissions are kept: a login from before workouts were imported has no 'workout' and must be redone.
+function oura_token_request($params, $scope = null) {
+    $old = kv_get('oura');
     [$code, $res] = http_json('POST', OURA_TOKEN, ['Content-Type: application/x-www-form-urlencoded'], http_build_query($params + [
         'client_id' => config('oura_client_id'),
         'client_secret' => config('oura_client_secret'),
@@ -226,7 +271,8 @@ function oura_token_request($params) {
         if (($params['grant_type'] ?? '') === 'refresh_token' && in_array($code, [400, 401], true)) kv_set('oura', null);
         return null;
     }
-    $t = ['access_token' => $res['access_token'], 'refresh_token' => $res['refresh_token'], 'expires_at' => time() + (int) ($res['expires_in'] ?? 3600)];
+    $t = ['access_token' => $res['access_token'], 'refresh_token' => $res['refresh_token'], 'expires_at' => time() + (int) ($res['expires_in'] ?? 3600),
+          'scope' => $res['scope'] ?? $scope ?? ($old['scope'] ?? '')];
     kv_set('oura', $t);
     return $t;
 }

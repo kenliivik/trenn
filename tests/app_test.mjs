@@ -131,4 +131,34 @@ t('other workout types do not affect each other', () => {
   assert.equal(S.suggest(RP, [kb('a', 1, 'easy'), kb('b', 2, 'easy')], {}, 80, {}, 'd'), null);
 });
 
+const H = 3600000, NOW = 100 * H;
+const out = (id, endH, hours, rating, intensity) => ({ id, type: 'outdoor', started_at: endH * H - hours * H, ended_at: endH * H, rating,
+  items: [{ id: 'activity', name: 'Cycling', intensity }] });
+
+t('a hard outdoor session yesterday suggests a lighter day, for any workout type', () => {
+  const s = S.suggest(KB, [out('o', 90, 1, 'hard')], {}, 80, {}, 'd', NOW);
+  assert.equal(s.kind, 'light');
+  assert.equal(s.temporary, true);
+  assert.match(s.text, /Hard cycling/);
+  assert.equal(S.suggest(EL, [out('o', 90, 1, 'hard')], {}, 80, {}, 'd', NOW).kind, 'light');
+});
+
+t('Oura calling it hard counts until you rate it; a long one counts too', () => {
+  assert.equal(S.suggest(KB, [out('o', 90, 1, null, 'hard')], {}, 80, {}, 'd', NOW).kind, 'light');
+  assert.equal(S.suggest(KB, [out('o', 90, 1, 'right', 'hard')], {}, 80, {}, 'd', NOW), null);
+  assert.equal(S.suggest(KB, [out('o', 90, 2.5, 'right')], {}, 80, {}, 'd', NOW).kind, 'light');
+  assert.equal(S.suggest(KB, [out('o', 90, 3, 'easy')], {}, 80, {}, 'd', NOW), null);
+});
+
+t('an outdoor session more than 30 hours ago or an easy one does not', () => {
+  assert.equal(S.suggest(KB, [out('o', 60, 1, 'hard')], {}, 80, {}, 'd', NOW), null);
+  assert.equal(S.suggest(KB, [out('o', 90, 1, 'easy', 'hard')], {}, 80, {}, 'd', NOW), null);
+});
+
+t('declining the outdoor suggestion lets the normal rules speak', () => {
+  const list = [out('o', 90, 1, 'hard'), kb('a', 1, 'easy'), kb('b', 2, 'easy')];
+  const light = S.suggest(KB, list, {}, 80, {}, 'd', NOW);
+  assert.equal(S.suggest(KB, list, {}, 80, { [light.key]: 1 }, 'd', NOW).kind, 'up');
+});
+
 console.log(`all ${n} app tests passed`);

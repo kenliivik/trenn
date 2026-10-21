@@ -62,6 +62,32 @@ check(store_photo('<?php echo "hi"; ?>' . str_repeat(' ', 200)) === null, 'a scr
 check(store_photo(str_repeat("\x89PNG", 40)) === null, 'a fake image header is refused');
 check(str_contains(file_get_contents(uploads_dir() . '/.htaccess'), 'Require all denied'), 'the photo folder only serves images');
 
+// Oura workouts -> outdoor sessions
+$el = list_sessions()[0]; // the elliptical session saved at the top, 30 min ago for 20 min
+$iso = fn($ms) => gmdate('Y-m-d\TH:i:s', intdiv($ms, 1000)) . '+00:00';
+$ride = ['id' => '9a8b-7c6d', 'activity' => 'cycling', 'label' => null, 'intensity' => 'hard', 'distance' => 23456.7, 'calories' => 612.4,
+         'start_datetime' => $iso($t0 - 5 * 3600000), 'end_datetime' => $iso($t0 - 3 * 3600000)];
+$dupe = ['id' => 'dupe-1', 'activity' => 'elliptical', 'start_datetime' => $iso($el['started_at'] + 60000), 'end_datetime' => $iso($el['ended_at'])];
+$ski = ['id' => 'ski-1', 'activity' => 'downhill_skiing', 'label' => 'Ski day', 'start_datetime' => $iso($t0 - 30 * 3600000), 'end_datetime' => $iso($t0 - 22 * 3600000)];
+store_workouts([$ride, $dupe, $ski, ['id' => 'broken', 'activity' => 'x']]);
+$by = array_column(list_sessions(), null, 'id');
+check(isset($by['oura-9a8b-7c6d']) && $by['oura-9a8b-7c6d']['type'] === 'outdoor', 'an Oura workout becomes an outdoor session');
+check($by['oura-9a8b-7c6d']['items'][0] === ['id' => 'activity', 'name' => 'Cycling', 'source' => 'oura', 'intensity' => 'hard', 'distance' => 23457, 'calories' => 612],
+    'activity name, intensity, distance and calories are kept');
+check($by['oura-9a8b-7c6d']['ended_at'] - $by['oura-9a8b-7c6d']['started_at'] === 2 * 3600000, 'its exact start and end are kept');
+check(!isset($by['oura-dupe-1']), 'a workout overlapping a session logged in trenn is skipped');
+check(($by['oura-ski-1']['items'][0]['name'] ?? '') === 'Ski day', 'the label from the Oura app wins over the activity type');
+check(!isset($by['oura-broken']), 'a workout without times is skipped');
+save_sessions([['id' => 'oura-9a8b-7c6d', 'type' => 'outdoor', 'started_at' => $by['oura-9a8b-7c6d']['started_at'],
+    'ended_at' => $by['oura-9a8b-7c6d']['ended_at'], 'rating' => 'easy', 'items' => $by['oura-9a8b-7c6d']['items']]]);
+store_workouts([$ride]);
+check(array_column(list_sessions(), null, 'id')['oura-9a8b-7c6d']['rating'] === 'easy', 'importing again keeps the rating given in the app');
+
+$many = [];
+for ($i = 0; $i < 2000; $i++) $many[] = ['timestamp' => gmdate('Y-m-d\TH:i:s', intdiv($start, 1000) + $i * 19) . '+00:00', 'bpm' => 100 + $i % 50];
+$long = hr_summary($many, $start, $start + 2000 * 19000);
+check(count($long['samples']) === 400 && $long['max'] === 149 && $long['min'] === 100, 'a long day keeps exact numbers and a 400-point curve');
+
 kv_set('library', ['sets' => [['id' => 'main', 'name' => 'Main', 'exercises' => ['goblet-squat']]]]);
 check(kv_get('library')['sets'][0]['exercises'] === ['goblet-squat'], 'the exercise library round-trips');
 

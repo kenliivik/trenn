@@ -76,8 +76,9 @@
   //   {key:'kb:main', type:'kb', set:'main', exercises:[...]}   {key:'ellip', type:'ellip', exercises:[elliptical]}
   // Evidence only counts after the group's last target change, and a declined suggestion is not shown again.
   //   sessions: [{id, type, set, started_at, rating, items:[{id, seconds}], hr:{avg}}]   readiness: today's score or null
-  function suggest(group, sessions, targets, readiness, declined, today) {
+  function suggest(group, sessions, targets, readiness, declined, today, now) {
     declined = declined || {};
+    now = now || Date.now();
     var since = (targets && targets.changedAt && targets.changedAt[group.key]) || 0;
     var mine = sessions.filter(function (s) {
       return s.type === group.type && (group.type !== 'kb' || (s.set || 'main') === group.set) && s.started_at > since;
@@ -89,6 +90,18 @@
     if (readiness !== null && readiness !== undefined && readiness < LOW_READINESS) {
       return pick({ key: 'light-' + group.key + '-' + today, kind: 'light', temporary: true,
         text: 'Readiness ' + readiness + ' today. Go one step lighter?', changes: step(group.exercises, targets, -1) });
+    }
+    // A hard outdoor session in the last 30 hours (rated hard, or Oura called it hard and it isn't rated, or 2 h or longer).
+    var tiring = sessions.filter(function (s) {
+      var it = (s.items || [])[0] || {};
+      return s.type === 'outdoor' && s.ended_at > now - 30 * 3600000 && s.ended_at <= now &&
+        (s.rating === 'hard' || (!s.rating && it.intensity === 'hard') || s.ended_at - s.started_at >= 2 * 3600000) && s.rating !== 'easy';
+    }).sort(function (a, b) { return b.ended_at - a.ended_at; })[0];
+    if (tiring) {
+      var what = ((tiring.items || [])[0] || {}).name || 'outdoor session';
+      var light = pick({ key: 'outdoor-' + group.key + '-' + tiring.id, kind: 'light', temporary: true,
+        text: 'Hard ' + what.toLowerCase() + ' recently. Go one step lighter today?', changes: step(group.exercises, targets, -1) });
+      if (light) return light;
     }
     if (last && last.rating === 'hard') {
       return pick({ key: 'down-' + last.id, kind: 'down',

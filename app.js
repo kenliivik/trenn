@@ -276,7 +276,7 @@
           else { meta.dirty = Date.now(); syncAgain = true; } // the server has no library yet: send this one
         }
         meta.readiness = d.readiness; meta.readinessDay = today();
-        meta.oura = d.oura; meta.syncedAt = Date.now(); meta.syncError = '';
+        meta.oura = d.oura; meta.ouraWorkouts = d.oura_workouts; meta.syncedAt = Date.now(); meta.syncError = '';
         saveLog(); applyTargets(); refresh();
       })
       .catch(function(e){ meta.syncError = e === 'key' ? 'key' : 'offline'; refresh(); })
@@ -365,7 +365,8 @@
         open:function(){ editing = false; showScreen('screen-library'); renderLibrary(); } },
       { name:'Jump rope', meta:timedVol(rope)+' sec', side:'Timed', open:function(){ startQueue([rope], 'screen-home', 'rope'); } },
       { name:'Elliptical', meta:timedVol(ellip)+' min', side:ellipWeek ? ellipWeek+' min this week' : 'Timed',
-        open:function(){ startQueue([ellip], 'screen-home', 'ellip'); } }
+        open:function(){ startQueue([ellip], 'screen-home', 'ellip'); } },
+      { name:'Outdoor', meta:lastOutdoorText(), side:'Log', open:openOutdoor }
     ];
     var list = document.getElementById('typeList');
     list.innerHTML = '';
@@ -379,6 +380,66 @@
       list.appendChild(b);
     });
   }
+
+  // ---------- OUTDOOR ----------
+  // Rollerblading, cycling, skiing...: Oura imports what it detects (server side); this screen logs what it missed.
+  var OUT_KINDS = ['Rollerblading', 'Cycling', 'Skiing', 'Running', 'Walking', 'Hiking', 'Swimming', 'Other'];
+  var outForm = null;
+  function outdoorName(s){ return ((s.items || [])[0] || {}).name || 'Outdoor'; }
+  function lastOutdoorText(){
+    var last = sessions.filter(function(s){ return s.type === 'outdoor'; }).slice(-1)[0];
+    if(!last) return 'Ride, skate, ski';
+    var days = Math.round((new Date(today()) - new Date(dateKey(new Date(last.started_at)))) / 86400000);
+    return esc(outdoorName(last))+' · '+(days === 0 ? 'today' : days === 1 ? 'yesterday' : days+' days ago');
+  }
+  function openOutdoor(){
+    // Start from the last activity logged by hand: usually the same one again.
+    var last = sessions.filter(function(s){ return s.type === 'outdoor' && ((s.items || [])[0] || {}).source !== 'oura'; }).slice(-1)[0];
+    var name = last ? outdoorName(last) : 'Cycling';
+    outForm = { kind: OUT_KINDS.indexOf(name) >= 0 ? name : 'Other', day: 0, feel: null };
+    $('outOther').value = OUT_KINDS.indexOf(name) >= 0 ? '' : name;
+    var start = new Date(Date.now() - 3600000);
+    $('outStart').value = pad2(start.getHours())+':'+pad2(Math.floor(start.getMinutes() / 5) * 5);
+    $('outMin').value = 60; $('outKm').value = ''; $('outErr').textContent = '';
+    $('outNote').innerHTML = meta.ouraWorkouts ? '<p>Workouts Oura detects are added to History by themselves. Log here what it missed.</p>'
+      : '<p>Tip: reconnect Oura in History and the workouts it detects come in by themselves.</p>';
+    renderOutdoor();
+    showScreen('screen-outdoor');
+  }
+  function renderOutdoor(){
+    var chips = $('outKinds');
+    chips.innerHTML = '';
+    OUT_KINDS.forEach(function(k){
+      var b = document.createElement('button');
+      b.textContent = k; b.setAttribute('aria-pressed', k === outForm.kind);
+      b.addEventListener('click', function(){ outForm.kind = k; renderOutdoor(); });
+      chips.appendChild(b);
+    });
+    $('outOtherRow').style.display = outForm.kind === 'Other' ? '' : 'none';
+    document.querySelectorAll('#outDay button').forEach(function(b){ b.setAttribute('aria-pressed', Number(b.dataset.d) === outForm.day); });
+    document.querySelectorAll('#outFeel button').forEach(function(b){ b.setAttribute('aria-pressed', b.dataset.r === outForm.feel); });
+  }
+  document.querySelectorAll('#outDay button').forEach(function(b){ b.addEventListener('click', function(){ outForm.day = Number(b.dataset.d); renderOutdoor(); }); });
+  document.querySelectorAll('#outFeel button').forEach(function(b){ b.addEventListener('click', function(){ outForm.feel = b.dataset.r; renderOutdoor(); }); });
+  $('outHome').addEventListener('click', function(){ showScreen('screen-home'); renderTop(); });
+  $('outSave').addEventListener('click', function(){
+    var name = outForm.kind === 'Other' ? $('outOther').value.trim().slice(0, 30) : outForm.kind;
+    var min = Math.round(Number($('outMin').value)), km = Number($('outKm').value), hm = ($('outStart').value || '').split(':');
+    if(!name){ $('outErr').textContent = 'Write what the activity was.'; return; }
+    if(hm.length < 2){ $('outErr').textContent = 'Enter when it started.'; return; }
+    if(!(min >= 1 && min <= 720)){ $('outErr').textContent = 'Minutes must be between 1 and 720.'; return; }
+    var start = new Date(); start.setDate(start.getDate() - outForm.day); start.setHours(Number(hm[0]), Number(hm[1]), 0, 0);
+    var end = start.getTime() + min * 60000;
+    if(end > Date.now() + 5 * 60000){ $('outErr').textContent = 'That would end in the future. Check the start time and minutes.'; return; }
+    var item = { id: 'activity', name: name, source: 'manual' };
+    if(km > 0) item.distance = Math.round(km * 1000);
+    sessions.push({ id: newId(), type: 'outdoor', started_at: start.getTime(), ended_at: end, rating: outForm.feel,
+                    items: [item], hr: null, _dirty: Date.now() });
+    sessions.sort(function(a, b){ return a.started_at - b.started_at; });
+    saveLog(); sync();
+    flash = name+' logged. Heart rate is added once the Oura app syncs.';
+    showScreen('screen-history'); renderHistory();
+  });
 
   // ---------- KETTLEBELL SETS ----------
   var editing = false;
@@ -806,6 +867,7 @@
     if(!key) note += '<p>History is kept on this device only. Paste your pairing link or key to save it on your server.</p>' + pairForm;
     else if(meta.syncError === 'key') note += '<p>The server did not accept this device\'s key. Paste the pairing link or key again.</p>' + pairForm;
     else if(meta.oura === false) note += '<p>Connect Oura to add heart rate to your sessions.</p><button class="hist-btn" id="ouraConnect">Connect Oura</button>';
+    else if(meta.oura && meta.ouraWorkouts === false) note += '<p>Reconnect Oura once so the workouts it detects (cycling, skiing, ...) come in by themselves.</p><button class="hist-btn" id="ouraConnect">Reconnect Oura</button>';
     $('ouraBox').innerHTML = note;
     var pb = $('pairBtn');
     if(pb) pb.addEventListener('click', function(){
@@ -827,20 +889,35 @@
     $('histList').innerHTML = list.length ? list.map(function(s){
       var d = new Date(s.started_at), secs = Math.round((s.ended_at - s.started_at) / 1000);
       var items = s.items || [];
+      var it0 = items[0] || {};
       var detail = s.type === 'kb' ? items.map(function(it){ return (it.name || nameOf(it.id))+' '+(it.target || (it.seconds ? it.seconds+' s' : '')); }).join(' · ')
-        : items[0] ? Math.round(items[0].seconds / (s.type === 'ellip' ? 60 : 1))+(s.type === 'ellip' ? ' min' : ' s')+' on the timer' : '';
+        : s.type === 'outdoor' ? [it0.distance ? (it0.distance / 1000).toFixed(1)+' km' : '', it0.calories ? it0.calories+' kcal' : '',
+            it0.source === 'oura' ? 'from Oura'+(it0.intensity ? ', '+it0.intensity : '') : 'logged'].filter(Boolean).join(' · ')
+        : it0.seconds ? Math.round(it0.seconds / (s.type === 'ellip' ? 60 : 1))+(s.type === 'ellip' ? ' min' : ' s')+' on the timer' : '';
+      // Oura imports arrive unrated: rate them here (the suggestions use it).
+      var rate = !s.rating && s.type === 'outdoor' ? '<div class="rate-btns mini" data-id="'+esc(s.id)+'">'+
+        '<button data-r="easy">Easy</button><button data-r="right">Right</button><button data-r="hard">Hard</button></div>' : '';
       var hr = !s.hr ? '<span class="micro">Heart rate: waiting for Oura</span>'
         : !s.hr.samples.length ? '<span class="micro">No heart rate from Oura</span>'
         : '<span class="micro">Avg</span><b>'+s.hr.avg+'</b><span class="micro">Max</span><b>'+s.hr.max+'</b><span class="micro">bpm · '+s.hr.samples.length+(s.hr.samples.length === 1 ? ' reading' : ' readings')+'</span>';
       return '<div class="hist-row">'+
         '<span class="when micro">'+DAY[d.getDay()]+' '+pad2(d.getDate())+'.'+pad2(d.getMonth()+1)+' · '+d.toTimeString().slice(0, 5)+' · '+Math.max(1, Math.round(secs / 60))+' min</span>'+
-        '<span class="what">'+esc(s.type === 'kb' ? setName(s.set) : TYPE_NAME[s.type])+'</span>'+
+        '<span class="what">'+esc(s.type === 'kb' ? setName(s.set) : s.type === 'outdoor' ? outdoorName(s) : TYPE_NAME[s.type])+'</span>'+
         (s.rating ? '<span class="rated micro '+s.rating+'">'+s.rating+'</span>' : '<span></span>')+
         '<span class="detail micro">'+esc(detail)+'</span>'+
+        rate+
         '<span class="hr">'+hr+'</span>'+
         (s.hr ? hrChart(s.hr.samples, secs) : '')+
       '</div>';
     }).join('') : '<p class="hist-empty micro">No sessions yet. Finish a workout and it shows up here.</p>';
+    $('histList').querySelectorAll('.rate-btns.mini button').forEach(function(b){
+      b.addEventListener('click', function(){
+        var id = b.parentNode.dataset.id, s = sessions.filter(function(x){ return x.id === id; })[0];
+        if(!s) return;
+        s.rating = b.dataset.r; s._dirty = Date.now();
+        saveLog(); sync(); renderHistory();
+      });
+    });
   }
   $('historyBtn').addEventListener('click', function(){ showScreen('screen-history'); renderHistory(); sync(); });
   $('histHomeBtn').addEventListener('click', function(){ flash = ''; showScreen('screen-home'); renderTop(); });

@@ -254,6 +254,14 @@
   .form-err:empty, #fPhotoMsg:empty{ display:none; }
   .form-remove{ background:var(--paper) !important; color:var(--red) !important; border:1px solid var(--red); }
 
+  /* ---------- OUTDOOR ---------- */
+  .chips{ display:flex; flex-wrap:wrap; gap:6px; }
+  .chips button{ height:44px; padding:0 12px; border:1px solid var(--ink); background:var(--paper); color:var(--ink); cursor:pointer;
+    font:700 12px 'JetBrains Mono', monospace; letter-spacing:.06em; text-transform:uppercase; }
+  .chips button[aria-pressed="true"]{ background:var(--ink); color:var(--paper); }
+  .rate-btns.mini{ grid-column:1 / -1; margin-top:4px; }
+  .rate-btns.mini button{ height:44px; font-size:14px; }
+
   /* ---------- HISTORY ---------- */
   .hist-note{ padding:10px 16px; border-bottom:1px solid var(--ink); font-size:13px; line-height:1.45; }
   .hist-note:empty{ display:none; }
@@ -290,10 +298,10 @@
     .howto{ font-size:15px; }
     .btn{ height:88px; }
   }
-  /* landscape tablet: tiles side by side; "Kettlebell" must fit a third of the width */
+  /* landscape tablet: tiles two by two; "Elliptical" must fit half the width */
   @media (min-width:1000px){
-    .type-list{ grid-template-columns:repeat(3, 1fr); grid-auto-rows:minmax(260px, 1fr); }
-    .type-tile .t{ font-size:clamp(34px, 4.2vw, 64px); }
+    .type-list{ grid-template-columns:repeat(2, 1fr); grid-auto-rows:minmax(200px, 1fr); }
+    .type-tile .t{ font-size:clamp(34px, 5.5vw, 72px); }
   }
 </style>
 </head>
@@ -444,6 +452,38 @@
     </div>
     <div class="cta-dock" style="grid-template-columns:1fr;">
       <button class="btn btn-primary" id="exSave">Save</button>
+    </div>
+  </section>
+
+  <!-- ============ OUTDOOR SCREEN ============ -->
+  <section class="screen" id="screen-outdoor">
+    <div class="status micro">
+      <button class="exit-btn back-btn" id="outHome">&lt; Home</button>
+      <span>Log an activity</span>
+    </div>
+    <h2 class="page-title mega">Outdoor</h2>
+    <div class="hist-note" id="outNote"></div>
+    <div class="form">
+      <span class="micro">Activity</span>
+      <div class="chips" id="outKinds"></div>
+      <label class="micro" id="outOtherRow">What was it<input id="outOther" maxlength="30" autocomplete="off" placeholder="Kayaking"></label>
+      <span class="micro">When</span>
+      <div class="seg" id="outDay"><button data-d="0">Today</button><button data-d="1">Yesterday</button></div>
+      <div class="form-row">
+        <label class="micro">Started<input id="outStart" type="time"></label>
+        <label class="micro">Minutes<input id="outMin" type="number" inputmode="numeric" min="1" max="720"></label>
+      </div>
+      <label class="micro">Distance in km (optional)<input id="outKm" type="number" inputmode="decimal" min="0" max="500" step="0.1"></label>
+      <span class="micro">How did it feel?</span>
+      <div class="rate-btns" id="outFeel">
+        <button data-r="easy" aria-pressed="false">Easy</button>
+        <button data-r="right" aria-pressed="false">Right</button>
+        <button data-r="hard" aria-pressed="false">Hard</button>
+      </div>
+      <p class="form-err" id="outErr"></p>
+    </div>
+    <div class="cta-dock" style="grid-template-columns:1fr;">
+      <button class="btn btn-primary" id="outSave">Save</button>
     </div>
   </section>
 

@@ -10,6 +10,6 @@ reply(['url' => OURA_AUTHORIZE . '?' . http_build_query([
     'client_id' => config('oura_client_id'),
     'redirect_uri' => app_url() . '/api/oura-callback.php',
     'response_type' => 'code',
-    'scope' => 'daily heartrate',
+    'scope' => OURA_SCOPE,
     'state' => $state,
 ])]);

@@ -9,6 +9,6 @@ $ok = $saved && hash_equals($saved['state'], (string) ($_GET['state'] ?? '')) &&
         'grant_type' => 'authorization_code',
         'code' => (string) $_GET['code'],
         'redirect_uri' => app_url() . '/api/oura-callback.php',
-    ]);
+    ], OURA_SCOPE);
 
 header('Location: ' . app_url() . '/#oura=' . ($ok ? 'ok' : 'failed'), true, 302);
