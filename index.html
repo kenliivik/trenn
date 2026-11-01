@@ -145,6 +145,7 @@
   .timer-box .clock{ padding:14px 12px 10px; }
   .timer-box .t-num{ display:block; font-family:'Archivo Black', sans-serif; font-size:clamp(72px, 26vw, 112px); line-height:.82; letter-spacing:-.07em; }
   .timer-box .t-num .s{ color:var(--red); }
+  .timer-box .t-num.settable{ cursor:pointer; }
   .timer-row{ display:grid; grid-template-columns:auto 1fr; border-top:1px solid var(--ink); }
   .t-step{ display:grid; grid-template-columns:72px 72px; gap:1px; background:var(--ink); border-right:1px solid var(--ink); }
   .t-step button{ background:var(--paper); color:var(--ink); border:0; height:64px; font-family:'Archivo Black', sans-serif; font-size:22px; cursor:pointer; }
@@ -399,7 +400,7 @@
       <div class="howto" id="exHowto"></div>
       <div class="timer-box" id="timerBox" style="display:none;">
         <div class="clock">
-          <span class="micro">Time remaining</span>
+          <span class="micro" id="clockLabel">Time remaining</span>
           <output class="t-num" id="timerNum">00:30</output>
         </div>
         <div class="timer-row">

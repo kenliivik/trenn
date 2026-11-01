@@ -186,4 +186,15 @@ t('time in zones counts each reading until the next, gaps capped at a minute', (
   assert.equal(S.hrZones([[0, 120]], 200).reduce((a, x) => a + x.seconds, 0), 0);
 });
 
+t('typed timer lengths', () => {
+  assert.equal(S.parseTime('5'), 300);
+  assert.equal(S.parseTime(' 5 min '), 300);
+  assert.equal(S.parseTime('2,5'), 150);
+  assert.equal(S.parseTime('1:30'), 90);
+  assert.equal(S.parseTime('0:45'), 45);
+  assert.equal(S.parseTime('45s'), 45);
+  assert.equal(S.parseTime('45 sek'), 45);
+  for (const bad of ['', 'abc', '1:75', '-5', '5h']) assert.equal(S.parseTime(bad), null, bad);
+});
+
 console.log(`all ${n} app tests passed`);

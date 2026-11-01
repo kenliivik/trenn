@@ -155,7 +155,16 @@
     return zones;
   }
 
-  var api = { RANGE: RANGE, hrZones: hrZones, SINGLE: SINGLE, PAIR: PAIR, LOW_READINESS: LOW_READINESS,
+  // A typed timer length in seconds, or null: "5" and "5 min" are minutes, "1:30" is minutes:seconds, "45s" is seconds.
+  function parseTime(text) {
+    var t = String(text || '').trim().toLowerCase().replace(',', '.'), m;
+    if ((m = t.match(/^(\d{1,3}):([0-5]?\d)$/))) return Number(m[1]) * 60 + Number(m[2]);
+    if ((m = t.match(/^(\d+(?:\.\d+)?)\s*(s|sec|secs|seconds?|sek)$/))) return Math.round(Number(m[1]));
+    if ((m = t.match(/^(\d+(?:\.\d+)?)\s*(m|min|mins|minutes?)?$/))) return Math.round(Number(m[1]) * 60);
+    return null;
+  }
+
+  var api = { RANGE: RANGE, hrZones: hrZones, parseTime: parseTime, SINGLE: SINGLE, PAIR: PAIR, LOW_READINESS: LOW_READINESS,
               normReps: normReps, scaleFor: scaleFor, timeLimits: timeLimits, current: current, step: step, suggest: suggest };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.TrennSuggest = api;

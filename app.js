@@ -65,7 +65,9 @@
 
   function imgSrc(ex){ return ex.imgSrc || (ex.img ? 'data:image/webp;base64,'+ex.img : ''); }
   // Shows a timed exercise's set length in its own unit (40 sec, 20 min).
-  function timedVol(ex){ return ex.volUnit === 'min' ? Math.round(ex.timerSeconds/6)/10 : ex.timerSeconds; }
+  // Timer lengths read as seconds up to 2 minutes, minutes from there (40 sec, 5 min, 20 min).
+  function timedVol(ex){ return ex.timerSeconds >= 120 ? Math.round(ex.timerSeconds/6)/10 : ex.timerSeconds; }
+  function timedUnit(ex){ return ex.timerSeconds >= 120 ? 'min' : 'sec'; }
 
   // Keep the screen on during a session (Android Chrome; iOS ignores it).
   var wakeLock = null, sessionActive = false;
@@ -90,18 +92,17 @@
       if(audio.state === 'suspended') audio.resume();
     }catch(e){}
   }
-  function beep(){
+  function tone(freq, length, delay){
     if(!audio) return;
-    [0, .35, .7].forEach(function(t, i){
-      var o = audio.createOscillator(), g = audio.createGain(), at = audio.currentTime + t;
-      o.frequency.value = i === 2 ? 1320 : 880;
-      g.gain.setValueAtTime(.0001, at);
-      g.gain.exponentialRampToValueAtTime(.5, at + .02);
-      g.gain.exponentialRampToValueAtTime(.0001, at + (i === 2 ? .6 : .25));
-      o.connect(g); g.connect(audio.destination);
-      o.start(at); o.stop(at + .65);
-    });
+    var o = audio.createOscillator(), g = audio.createGain(), at = audio.currentTime + (delay || 0);
+    o.frequency.value = freq;
+    g.gain.setValueAtTime(.0001, at);
+    g.gain.exponentialRampToValueAtTime(.5, at + .02);
+    g.gain.exponentialRampToValueAtTime(.0001, at + length);
+    o.connect(g); g.connect(audio.destination);
+    o.start(at); o.stop(at + length + .05);
   }
+  function beep(){ tone(880, .25); tone(880, .25, .35); tone(1320, .6, .7); } // time's up
   function pad2(n){ return String(n).padStart(2,'0'); }
   var now = new Date();
   document.getElementById('todayDate').textContent =
@@ -223,7 +224,7 @@
       var l = S.timeLimits(def);
       r.volType = 'time'; r.timerSeconds = S.current(def, t); r.volUnit = def.unit || (def.seconds >= 300 ? 'min' : 'sec');
       r.adjustable = true; r.step = l.step; r.min = l.min; r.max = l.max;
-      r.volNum = timedVol(r);
+      r.volNum = timedVol(r); r.volUnit = timedUnit(r);
     } else {
       r.volType = 'reps'; r.volNum = S.current(def, t); r.volUnit = def.unit || 'reps';
     }
@@ -366,8 +367,8 @@
       { name:'Strength', meta:activeSet().exercises.length+(activeSet().exercises.length === 1 ? ' exercise · ' : ' exercises · ')+esc(activeSet().name),
         side:library.sets.length > 1 ? library.sets.length+' sets' : '1 set',
         open:function(){ editing = false; showScreen('screen-library'); renderLibrary(); } },
-      { name:'Jump rope', meta:timedVol(rope)+' sec', side:'Timed', open:function(){ startQueue([rope], 'screen-home', 'rope'); } },
-      { name:'Elliptical', meta:timedVol(ellip)+' min', side:ellipWeek ? ellipWeek+' min this week' : 'Timed',
+      { name:'Jump rope', meta:timedVol(rope)+' '+timedUnit(rope), side:'Timed', open:function(){ startQueue([rope], 'screen-home', 'rope'); } },
+      { name:'Elliptical', meta:timedVol(ellip)+' '+timedUnit(ellip), side:ellipWeek ? ellipWeek+' min this week' : 'Timed',
         open:function(){ startQueue([ellip], 'screen-home', 'ellip'); } },
       { name:'Outdoor', meta:lastOutdoorText(), side:'Log', open:openOutdoor }
     ];
@@ -698,7 +699,7 @@
     var tagRow = document.getElementById('exTags');
     tagRow.innerHTML = ex.target.map(function(t){ return '<span class="tag">'+esc(t)+'</span>'; }).join('');
     document.getElementById('exVolNum').textContent = ex.adjustable ? timedVol(ex) : ex.volNum;
-    document.getElementById('exVolUnit').textContent = ex.volUnit;
+    document.getElementById('exVolUnit').textContent = ex.volType === 'time' ? timedUnit(ex) : ex.volUnit;
     document.getElementById('exHowto').innerHTML = ex.how ? '<b>///</b> '+esc(ex.how) : '';
     document.getElementById('prevBtn').style.visibility = qIndex === 0 && queue.length > 1 ? 'hidden' : 'visible';
     document.getElementById('nextBtn').textContent = queue.length === 1 ? 'Done' : (qIndex === queue.length-1) ? 'Finish Circuit' : 'Set Complete';
@@ -717,6 +718,8 @@
       updateTimerDisplay();
       document.getElementById('timerToggle').textContent = 'Start';
       document.getElementById('timerToggle').classList.remove('running');
+      $('clockLabel').textContent = ex.adjustable ? 'Tap the time to type it' : 'Time remaining';
+      $('timerNum').classList.toggle('settable', !!ex.adjustable);
     } else {
       timerBox.style.display = 'none';
     }
@@ -727,38 +730,77 @@
     var s = timerRemaining%60;
     document.getElementById('timerNum').innerHTML = pad2(m)+':<span class="s">'+pad2(s)+'</span>';
   }
+  var counting = false; // the "get ready" countdown before the timer runs
+  var READY_SECONDS = 5;
   function stopTimer(){
     if(timerInterval){ clearInterval(timerInterval); timerInterval = null; }
     timerRunning = false;
+    counting = false;
+    $('clockLabel').textContent = 'Time remaining';
   }
   document.getElementById('timerToggle').addEventListener('click', function(){
+    var self = this, ex = queue[qIndex];
+    if(counting){ // cancelled before it began
+      stopTimer();
+      updateTimerDisplay();
+      self.textContent = 'Start';
+      if(!timerStarted && ex.adjustable){ $('timerStep').style.display = 'grid'; $('clockLabel').textContent = 'Tap the time to type it'; }
+      return;
+    }
     if(timerRunning){
       stopTimer();
-      this.textContent = 'Start';
-      this.classList.remove('running');
-    } else {
-      if(timerRemaining <= 0) return;
-      unlockAudio();
-      timerRunning = true;
-      timerStarted = true;
-      document.getElementById('timerStep').style.display = 'none';
-      $('suggestSolo').style.display = 'none'; // targets are set once the timer runs
-      this.textContent = 'Pause';
-      this.classList.add('running');
-      var self = this;
-      // Count from a fixed end time: iOS pauses setInterval while the screen is locked.
-      timerEndAt = Date.now() + timerRemaining*1000;
-      timerInterval = setInterval(function(){
-        timerRemaining = Math.max(0, Math.ceil((timerEndAt - Date.now())/1000));
-        updateTimerDisplay();
-        if(timerRemaining <= 0){
-          stopTimer();
-          beep();
-          self.textContent = 'Done';
-          self.classList.remove('running');
-        }
-      }, 1000);
+      self.textContent = 'Start';
+      self.classList.remove('running');
+      return;
     }
+    if(timerRemaining <= 0) return;
+    unlockAudio();
+    $('timerStep').style.display = 'none';
+    $('suggestSolo').style.display = 'none'; // targets are set once the timer runs
+    // Time to put the phone down and get in position: a tick each second, a higher beep on go.
+    counting = true;
+    self.textContent = 'Cancel';
+    $('clockLabel').textContent = 'Get ready';
+    var goAt = Date.now() + READY_SECONDS * 1000, shown = 0;
+    var showLeft = function(){
+      var left = Math.ceil((goAt - Date.now()) / 1000);
+      if(left > 0 && left !== shown){ shown = left; $('timerNum').innerHTML = '<span class="s">'+left+'</span>'; tone(660, .12); }
+      if(left <= 0){ clearInterval(timerInterval); counting = false; tone(1320, .35); run(self); }
+    };
+    showLeft();
+    timerInterval = setInterval(showLeft, 100);
+  });
+  function run(btn){
+    timerRunning = true;
+    timerStarted = true;
+    $('clockLabel').textContent = 'Time remaining';
+    btn.textContent = 'Pause';
+    btn.classList.add('running');
+    // Count from a fixed end time: iOS pauses setInterval while the screen is locked.
+    timerEndAt = Date.now() + timerRemaining*1000;
+    updateTimerDisplay();
+    timerInterval = setInterval(function(){
+      timerRemaining = Math.max(0, Math.ceil((timerEndAt - Date.now())/1000));
+      updateTimerDisplay();
+      if(timerRemaining <= 0){
+        stopTimer();
+        beep();
+        btn.textContent = 'Done';
+        btn.classList.remove('running');
+      }
+    }, 1000);
+  }
+  // Tap the big time to type one in: "5" is 5 minutes, "1:30", "45s".
+  $('timerNum').addEventListener('click', function(){
+    var ex = queue[qIndex];
+    if(!ex || !ex.adjustable || timerStarted || counting) return;
+    var typed = prompt('Time: minutes (5), minutes:seconds (1:30) or seconds (45s)', '');
+    var secs = typed == null ? null : S.parseTime(typed);
+    if(secs == null) return;
+    ex.timerSeconds = Math.min(ex.max, Math.max(ex.min, secs));
+    timerRemaining = ex.timerSeconds;
+    $('exVolNum').textContent = timedVol(ex); $('exVolUnit').textContent = timedUnit(ex);
+    updateTimerDisplay();
   });
 
   function stepTime(dir){
@@ -766,7 +808,7 @@
     if(timerStarted || !ex.adjustable) return;
     ex.timerSeconds = Math.min(ex.max, Math.max(ex.min, ex.timerSeconds + dir*ex.step));
     timerRemaining = ex.timerSeconds;
-    document.getElementById('exVolNum').textContent = timedVol(ex);
+    document.getElementById('exVolNum').textContent = timedVol(ex); $('exVolUnit').textContent = timedUnit(ex);
     updateTimerDisplay();
   }
   document.getElementById('timerMinus').addEventListener('click', function(){ stepTime(-1); });
